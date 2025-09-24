@@ -1,0 +1,16 @@
+{
+  "short_name": "Nos Recettes",
+  "name": "Nos Recettes",
+  "description": "Une application mobile pour découvrir, enregistrer et créer de délicieuses recettes. Ajoutez une recette en prenant une photo et laissez l'IA générer les détails pour vous.",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#BDEE63",
+  "background_color": "#FBF9F4"
+}

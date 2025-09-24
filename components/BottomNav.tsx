@@ -1,6 +1,6 @@
 import React from 'react';
 import { Page } from '../types';
-import { BrowseIcon, SearchIcon, GroceryListIcon } from '../constants';
+import { RecipesIcon, SearchIcon, GroceryListIcon } from '../constants';
 
 interface BottomNavProps {
   currentPage: Page;
@@ -10,7 +10,7 @@ interface BottomNavProps {
 
 const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, onSearchClick }) => {
   const navItems = [
-    { page: Page.RecipeList, label: 'Parcourir', icon: BrowseIcon },
+    { page: Page.RecipeList, label: 'Recettes', icon: RecipesIcon },
     { page: Page.AddRecipe, label: 'Ajouter', icon: () => <div /> },
     { page: Page.Welcome, label: 'Chercher', icon: SearchIcon }, // Page is a placeholder
     { page: Page.GroceryList, label: 'Liste', icon: GroceryListIcon },
@@ -55,7 +55,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, onSearch
             className="flex flex-col items-center justify-center w-1/4 h-full text-stone-500"
           >
             <Icon isActive={isActive} />
-            <span className={`text-xs mt-1 font-medium ${isActive ? 'text-[#BDEE63]' : 'text-stone-500'}`}>{item.label}</span>
+            <span className={`text-xs mt-1 font-medium ${isActive ? 'text-[#84cc16]' : 'text-stone-500'}`}>{item.label}</span>
           </button>
         );
       })}

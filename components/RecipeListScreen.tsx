@@ -17,7 +17,7 @@ const RecipeListScreen: React.FC<RecipeListScreenProps> = ({ recipes, onViewReci
   return (
     <div className="p-6 pb-24">
        <h1 className="text-3xl font-bold text-stone-800 mb-2">
-          {activeCategory ? `Catégorie : ${activeCategory}` : 'Parcourir les recettes'}
+          {activeCategory ? `Catégorie : ${activeCategory}` : 'Recettes'}
         </h1>
       {activeCategory && (
         <button 

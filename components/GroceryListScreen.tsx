@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GroceryItem } from '../types';
 import { BackIcon, DragHandleIcon, CloseIcon, SpoonForkIcon } from '../constants';
 
@@ -14,6 +14,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
   const [localItems, setLocalItems] = useState(items);
   const [newItemText, setNewItemText] = useState('');
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLocalItems(items);
@@ -24,6 +25,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
     if (newItemText.trim()) {
       onAddItem(newItemText.trim());
       setNewItemText('');
+      inputRef.current?.focus();
     }
   };
 
@@ -56,6 +58,8 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
       
       <form onSubmit={handleAddItem} className="flex items-center gap-3 my-6">
         <input
+          ref={inputRef}
+          autoFocus
           type="text"
           value={newItemText}
           onChange={(e) => setNewItemText(e.target.value)}

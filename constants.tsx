@@ -88,20 +88,20 @@ export const LinkIcon = () => (
     </svg>
 );
 
-export const BrowseIcon = ({isActive}: {isActive: boolean}) => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? '#BDEE63' : 'currentColor'} className="w-6 h-6">
-        <path d="M11.25 4.533A9.708 9.708 0 0 0 6 3.75c-1.64 0-3.173.535-4.5 1.425v12.75c1.327-.89 2.86-.425 4.5.425a9.708 9.708 0 0 0 5.25 1.083m0-15.166a9.708 9.708 0 0 1 5.25 1.083c1.64.85 3.173.39 4.5-.425v12.75c-1.327.89-2.86.425-4.5-.425a9.708 9.708 0 0 1-5.25-1.083m0-15.166V19.5" />
+export const RecipesIcon = ({isActive}: {isActive: boolean}) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? '#84cc16' : 'currentColor'} className="w-6 h-6">
+        <path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z" />
     </svg>
 );
 
 export const SearchIcon = ({isActive}: {isActive: boolean}) => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? '#BDEE63' : 'currentColor'} className="w-6 h-6">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? '#84cc16' : 'currentColor'} className="w-6 h-6">
         <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5ZM2.25 10.5a8.25 8.25 0 1 1 14.59 5.28l4.69 4.69a.75.75 0 1 1-1.06 1.06l-4.69-4.69A8.25 8.25 0 0 1 2.25 10.5Z" clipRule="evenodd" />
     </svg>
 );
 
 export const GroceryListIcon = ({isActive}: {isActive: boolean}) => (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? '#BDEE63' : 'currentColor'} className="w-6 h-6">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={isActive ? '#84cc16' : 'currentColor'} className="w-6 h-6">
         <path fillRule="evenodd" d="M2.625 6.75a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .75.75v.01a.75.75 0 0 1-.75.75H3.375a.75.75 0 0 1-.75-.75V6.75Zm0 5.25a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .75.75v.01a.75.75 0 0 1-.75.75H3.375a.75.75 0 0 1-.75-.75V12Zm0 5.25a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .75.75v.01a.75.75 0 0 1-.75.75H3.375a.75.75 0 0 1-.75-.75v-1.5Z" clipRule="evenodd" />
         <path fillRule="evenodd" d="M8.25 6a.75.75 0 0 1 .75.75h12a.75.75 0 0 1 0 1.5H9a.75.75 0 0 1-.75-.75V6Zm0 5.25a.75.75 0 0 1 .75.75h12a.75.75 0 0 1 0 1.5H9a.75.75 0 0 1-.75-.75v-1.5Zm0 5.25a.75.75 0 0 1 .75.75h12a.75.75 0 0 1 0 1.5H9a.75.75 0 0 1-.75-.75v-1.5Z" clipRule="evenodd" />
     </svg>
