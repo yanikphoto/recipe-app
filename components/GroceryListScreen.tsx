@@ -46,7 +46,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
   const handleDragEnd = () => setDraggedIndex(null);
 
   return (
-    <div className="p-6 h-screen flex flex-col">
+    <div className="p-6 pb-24 h-screen flex flex-col">
       <header className="flex items-center">
         <button onClick={onBack} className="p-2 -ml-2">
           <BackIcon />

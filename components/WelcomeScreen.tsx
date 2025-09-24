@@ -17,7 +17,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigate, onSearchClick
         />
       </header>
       <main className="flex-grow flex flex-col items-center justify-center text-center px-8 py-6">
-        <h1 className="text-4xl font-bold text-stone-800 mb-12">Nos recettes 5 ⭐</h1>
+        <h1 className="text-4xl font-bold text-stone-800 mb-12">Nos Recettes</h1>
         <div className="w-full max-w-xs mx-auto space-y-4">
           <button
             onClick={() => onNavigate(Page.AddRecipe)}
