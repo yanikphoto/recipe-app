@@ -2,57 +2,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { DEFAULT_CATEGORIES } from "../constants";
 import { Recipe, Ingredient, Instruction } from '../types';
 
-// Memoize the API key in memory to avoid fetching it multiple times.
-let memoizedApiKey: string | null = null;
-
-/**
- * Fetches the API key from a secure endpoint on the server.
- * The key is memoized to avoid repeated requests.
- * @returns A promise that resolves to the API key.
- */
-async function getApiKey(): Promise<string> {
-    if (memoizedApiKey) {
-        return memoizedApiKey;
-    }
-
-    try {
-        const response = await fetch('/api/getApiKey');
-        if (!response.ok) {
-            let serverMessage = "Clé API manquante. Veuillez configurer la variable d'environnement API_KEY dans les paramètres de votre projet Vercel pour utiliser les fonctionnalités IA.";
-            try {
-                const errorJson = await response.json();
-                if (errorJson.message) {
-                    serverMessage = errorJson.message;
-                }
-            } catch (e) {
-                // Ignore if parsing fails, use the default message.
-            }
-            throw new Error(serverMessage);
-        }
-        
-        const data = await response.json();
-        if (!data.apiKey) {
-            throw new Error("La réponse du serveur ne contenait pas de clé API.");
-        }
-        
-        memoizedApiKey = data.apiKey;
-        return memoizedApiKey;
-    } catch (error) {
-        console.error("Erreur lors de la récupération de la clé API:", error);
-        // Rethrow the error to be handled by the caller, which will show an alert.
-        throw error;
-    }
-}
-
-
-/**
- * Safely initializes and returns the GoogleGenAI client by asynchronously fetching the API key.
- * @returns A promise that resolves to an instance of the GoogleGenAI client.
- */
-async function getAiClient(): Promise<GoogleGenAI> {
-    const apiKey = await getApiKey();
-    return new GoogleGenAI({ apiKey });
-}
+// Per guidelines, initialize the AI client directly.
+// The execution environment is expected to provide `process.env.API_KEY`.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const schema = {
   type: Type.OBJECT,
@@ -83,7 +35,6 @@ const schema = {
 
 export async function generateRecipeFromImage(base64Image: string, mimeType: string, imageUrl: string): Promise<Recipe> {
     try {
-        const ai = await getAiClient();
         const imagePart = {
             inlineData: {
                 data: base64Image,
@@ -139,7 +90,6 @@ export async function generateRecipeFromImage(base64Image: string, mimeType: str
 
 async function generateImageForRecipe(recipeName: string): Promise<string> {
     try {
-        const ai = await getAiClient();
         console.log(`Generating image for: ${recipeName}`);
         const response = await ai.models.generateImages({
             model: 'imagen-4.0-generate-001',
@@ -170,7 +120,6 @@ async function generateImageForRecipe(recipeName: string): Promise<string> {
 
 export async function generateRecipeFromUrl(url: string): Promise<Recipe> {
     try {
-        const ai = await getAiClient();
         const prompt = `Analyse le contenu de la page web à l'URL suivante, trouvée via la recherche Google : ${url}.
 Ton objectif est d'extraire les informations d'une recette et de les retourner dans un format JSON spécifique en français.
 
@@ -250,7 +199,7 @@ Si tu ne trouves absolument aucune recette sur la page, renvoie ce JSON et rien 
          if (error instanceof SyntaxError) {
              throw new Error("Impossible d'analyser la recette depuis l'URL. Le format de la réponse du modèle était inattendu.");
         }
-        // Rethrow other errors, including the one from getAiClient
+        // Rethrow other errors
         throw error;
     }
 }
