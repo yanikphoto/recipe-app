@@ -2,9 +2,37 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { DEFAULT_CATEGORIES } from "../constants";
 import { Recipe, Ingredient, Instruction } from '../types';
 
-// Per guidelines, initialize the AI client directly.
-// The execution environment is expected to provide `process.env.API_KEY`.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let ai: GoogleGenAI | null = null;
+
+async function fetchApiKey(): Promise<string> {
+    const response = await fetch('/api/getApiKey');
+    if (!response.ok) {
+        const errorData = await response.json();
+        // This message will be shown in the alert in App.tsx
+        throw new Error(errorData.message || "Impossible de récupérer la clé d'API.");
+    }
+    const data = await response.json();
+    if (!data.apiKey) {
+        throw new Error("La clé d'API n'a pas été trouvée dans la réponse du serveur.");
+    }
+    return data.apiKey;
+}
+
+async function getAiClient(): Promise<GoogleGenAI> {
+    if (ai) {
+        return ai;
+    }
+
+    try {
+        const apiKey = await fetchApiKey();
+        ai = new GoogleGenAI({ apiKey });
+        return ai;
+    } catch (error) {
+        console.error("Failed to initialize AI Client:", error);
+        // Rethrow to be caught by the calling function in App.tsx
+        throw error;
+    }
+}
 
 const schema = {
   type: Type.OBJECT,
@@ -35,6 +63,7 @@ const schema = {
 
 export async function generateRecipeFromImage(base64Image: string, mimeType: string, imageUrl: string): Promise<Recipe> {
     try {
+        const aiClient = await getAiClient();
         const imagePart = {
             inlineData: {
                 data: base64Image,
@@ -49,7 +78,7 @@ export async function generateRecipeFromImage(base64Image: string, mimeType: str
 3. Retourne le résultat au format JSON, en incluant un booléen \`is_low_quality_image\` qui est vrai si l'image est de mauvaise qualité, et faux sinon.`
         };
 
-        const response = await ai.models.generateContent({
+        const response = await aiClient.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: { parts: [imagePart, textPart] },
             config: {
@@ -84,14 +113,16 @@ export async function generateRecipeFromImage(base64Image: string, mimeType: str
 
     } catch (error) {
         console.error("Error generating recipe from image:", error);
-        throw new Error("Impossible de générer la recette à partir de l'image. Veuillez réessayer.");
+        // Rethrow the original error to be caught by App.tsx and displayed in an alert.
+        throw error;
     }
 }
 
 async function generateImageForRecipe(recipeName: string): Promise<string> {
     try {
+        const aiClient = await getAiClient();
         console.log(`Generating image for: ${recipeName}`);
-        const response = await ai.models.generateImages({
+        const response = await aiClient.models.generateImages({
             model: 'imagen-4.0-generate-001',
             prompt: `Une photo de style culinaire, appétissante et professionnelle de "${recipeName}". Arrière-plan simple et lumineux.`,
             config: {
@@ -110,7 +141,6 @@ async function generateImageForRecipe(recipeName: string): Promise<string> {
         }
     } catch (error) {
         console.error(`Error generating image for ${recipeName}:`, error);
-        // Rethrow the original error to be caught by the calling function, which might have more context
         if (error instanceof Error) {
             throw error;
         }
@@ -120,6 +150,7 @@ async function generateImageForRecipe(recipeName: string): Promise<string> {
 
 export async function generateRecipeFromUrl(url: string): Promise<Recipe> {
     try {
+        const aiClient = await getAiClient();
         const prompt = `Analyse le contenu de la page web à l'URL suivante, trouvée via la recherche Google : ${url}.
 Ton objectif est d'extraire les informations d'une recette et de les retourner dans un format JSON spécifique en français.
 
@@ -152,7 +183,7 @@ Si tu ne trouves absolument aucune recette sur la page, renvoie ce JSON et rien 
 
         const textPart = { text: prompt };
 
-        const response = await ai.models.generateContent({
+        const response = await aiClient.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: { parts: [textPart] },
             config: {
