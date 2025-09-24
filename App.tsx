@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Page, Recipe, GroceryItem } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
 import AddRecipeScreen from './components/AddRecipeScreen';
@@ -52,13 +52,48 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ isOpen, onClose, 
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>(Page.Welcome);
-  const [recipes, setRecipes] = useState<Recipe[]>(MOCK_RECIPES);
+  
+  const [recipes, setRecipes] = useState<Recipe[]>(() => {
+    try {
+      const savedRecipes = localStorage.getItem('nos-recettes-recipes');
+      return savedRecipes ? JSON.parse(savedRecipes) : MOCK_RECIPES;
+    } catch (error) {
+      console.error("Échec du chargement des recettes depuis localStorage", error);
+      return MOCK_RECIPES;
+    }
+  });
+
+  const [groceryList, setGroceryList] = useState<GroceryItem[]>(() => {
+    try {
+      const savedList = localStorage.getItem('nos-recettes-grocery-list');
+      return savedList ? JSON.parse(savedList) : [];
+    } catch (error) {
+      console.error("Échec du chargement de la liste d'épicerie depuis localStorage", error);
+      return [];
+    }
+  });
+
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState<boolean>(false);
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string | null>(null);
   const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null);
-  const [groceryList, setGroceryList] = useState<GroceryItem[]>([]);
+  
+  useEffect(() => {
+    try {
+      localStorage.setItem('nos-recettes-recipes', JSON.stringify(recipes));
+    } catch (error) {
+      console.error("Échec de la sauvegarde des recettes sur localStorage", error);
+    }
+  }, [recipes]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nos-recettes-grocery-list', JSON.stringify(groceryList));
+    } catch (error) {
+      console.error("Échec de la sauvegarde de la liste d'épicerie sur localStorage", error);
+    }
+  }, [groceryList]);
 
   const allUniqueCategories = useMemo(() => {
     const allCategories = recipes.flatMap(r => r.categories);
