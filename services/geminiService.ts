@@ -2,7 +2,19 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { DEFAULT_CATEGORIES } from "../constants";
 import { Recipe, Ingredient, Instruction } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+/**
+ * Safely initializes and returns the GoogleGenAI client.
+ * Throws a specific error if the API key is not configured in the environment.
+ * This prevents the entire application from crashing on startup.
+ * @returns An instance of the GoogleGenAI client.
+ */
+function getAiClient(): GoogleGenAI {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error("Clé API manquante. Veuillez configurer la variable d'environnement API_KEY dans les paramètres de votre projet Vercel pour utiliser les fonctionnalités IA.");
+    }
+    return new GoogleGenAI({ apiKey });
+}
 
 const schema = {
   type: Type.OBJECT,
@@ -33,6 +45,7 @@ const schema = {
 
 export async function generateRecipeFromImage(base64Image: string, mimeType: string, imageUrl: string): Promise<Recipe> {
     try {
+        const ai = getAiClient();
         const imagePart = {
             inlineData: {
                 data: base64Image,
@@ -88,6 +101,7 @@ export async function generateRecipeFromImage(base64Image: string, mimeType: str
 
 async function generateImageForRecipe(recipeName: string): Promise<string> {
     try {
+        const ai = getAiClient();
         console.log(`Generating image for: ${recipeName}`);
         const response = await ai.models.generateImages({
             model: 'imagen-4.0-generate-001',
@@ -108,12 +122,17 @@ async function generateImageForRecipe(recipeName: string): Promise<string> {
         }
     } catch (error) {
         console.error(`Error generating image for ${recipeName}:`, error);
+        // Rethrow the original error to be caught by the calling function, which might have more context
+        if (error instanceof Error) {
+            throw error;
+        }
         return `https://picsum.photos/seed/${encodeURIComponent(recipeName)}/800/600`;
     }
 }
 
 export async function generateRecipeFromUrl(url: string): Promise<Recipe> {
     try {
+        const ai = getAiClient();
         const prompt = `Analyse le contenu de la page web à l'URL suivante, trouvée via la recherche Google : ${url}.
 Ton objectif est d'extraire les informations d'une recette et de les retourner dans un format JSON spécifique en français.
 
@@ -193,6 +212,7 @@ Si tu ne trouves absolument aucune recette sur la page, renvoie ce JSON et rien 
          if (error instanceof SyntaxError) {
              throw new Error("Impossible d'analyser la recette depuis l'URL. Le format de la réponse du modèle était inattendu.");
         }
-        throw new Error("Impossible de générer la recette à partir de l'URL. Vérifiez le lien ou réessayez.");
+        // Rethrow other errors, including the one from getAiClient
+        throw error;
     }
 }
