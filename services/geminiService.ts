@@ -1,236 +1,126 @@
+// FIX: Import necessary types and classes from @google/genai.
 import { GoogleGenAI, Type } from "@google/genai";
-import { DEFAULT_CATEGORIES } from "../constants";
-import { Recipe, Ingredient, Instruction } from '../types';
+import { Recipe } from '../types';
 
-let ai: GoogleGenAI | null = null;
+// FIX: Initialize GoogleGenAI with API key from environment variables as per guidelines.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
-async function fetchApiKey(): Promise<string> {
-    const response = await fetch('/api/getApiKey');
-    if (!response.ok) {
-        const errorData = await response.json();
-        // This message will be shown in the alert in App.tsx
-        throw new Error(errorData.message || "Impossible de récupérer la clé d'API.");
-    }
-    const data = await response.json();
-    if (!data.apiKey) {
-        throw new Error("La clé d'API n'a pas été trouvée dans la réponse du serveur.");
-    }
-    return data.apiKey;
-}
-
-async function getAiClient(): Promise<GoogleGenAI> {
-    if (ai) {
-        return ai;
-    }
-
-    try {
-        const apiKey = await fetchApiKey();
-        ai = new GoogleGenAI({ apiKey });
-        return ai;
-    } catch (error) {
-        console.error("Failed to initialize AI Client:", error);
-        // Rethrow to be caught by the calling function in App.tsx
-        throw error;
-    }
-}
-
-const schema = {
-  type: Type.OBJECT,
-  properties: {
-    name: { type: Type.STRING, description: "Le nom du plat en français." },
-    categories: {
-      type: Type.ARRAY,
-      description: `Une ou plusieurs catégories pertinentes pour la recette, choisies exclusivement dans cette liste : ${DEFAULT_CATEGORIES.join(", ")}. Si aucune ne correspond, retourne un tableau vide.`,
-      items: { type: Type.STRING }
+const recipeSchema = {
+    type: Type.OBJECT,
+    properties: {
+        title: { type: Type.STRING, description: "The title of the recipe." },
+        categories: { 
+            type: Type.ARRAY, 
+            items: { type: Type.STRING },
+            description: "A list of categories for the recipe (e.g., Dessert, Végétarien)."
+        },
+        servings: { type: Type.NUMBER, description: "The number of people this recipe serves." },
+        ingredients: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    name: { type: Type.STRING, description: "Name of the ingredient." },
+                    quantity: { type: Type.NUMBER, description: "Quantity of the ingredient." },
+                    unit: { type: Type.STRING, description: "Unit for the quantity (e.g., g, ml, cup, tbsp)." },
+                },
+                required: ['name', 'quantity', 'unit'],
+            },
+            description: "List of ingredients for the recipe."
+        },
+        instructions: { 
+            type: Type.ARRAY, 
+            items: { type: Type.STRING },
+            description: "Step-by-step instructions to prepare the recipe."
+        },
     },
-    ingredients: {
-      type: Type.ARRAY,
-      description: "La liste des ingrédients en français, incluant les quantités. Chaque élément est une chaîne de caractères.",
-      items: { type: Type.STRING }
-    },
-    instructions: {
-      type: Type.ARRAY,
-      description: "Les instructions de préparation étape par étape, en français. Chaque élément est une chaîne de caractères.",
-      items: { type: Type.STRING }
-    },
-    is_low_quality_image: {
-        type: Type.BOOLEAN,
-        description: "Vrai si l'image est une capture d'écran, une photo de mauvaise qualité, ou si elle contient du texte ou des éléments d'interface qui ne font pas partie du plat. Faux si c'est une photo de bonne qualité du plat."
-    }
-  },
-  required: ["name", "categories", "ingredients", "instructions", "is_low_quality_image"]
+    required: ['title', 'categories', 'servings', 'ingredients', 'instructions'],
 };
 
-export async function generateRecipeFromImage(base64Image: string, mimeType: string, imageUrl: string): Promise<Recipe> {
+// New schema for URL parsing that includes an image prompt
+const recipeSchemaWithImagePrompt = {
+    ...recipeSchema,
+    properties: {
+        ...recipeSchema.properties,
+        imagePrompt: { 
+            type: Type.STRING, 
+            description: "A detailed, descriptive prompt in English for an image generation AI to create a beautiful, realistic photo of the final dish. Example: 'A steaming bowl of homemade chicken noodle soup, with fresh parsley and a side of crusty bread, on a rustic wooden table.'"
+        }
+    },
+    required: [...recipeSchema.required, 'imagePrompt']
+};
+
+
+export async function parseRecipeFromImage(imagePart: { inlineData: { data: string; mimeType: string; } }, allCategories: string[]): Promise<Partial<Recipe> & { imagePrompt: string }> {
     try {
-        const aiClient = await getAiClient();
-        const imagePart = {
-            inlineData: {
-                data: base64Image,
-                mimeType: mimeType,
-            },
-        };
-
-        const textPart = {
-            text: `Analyse cette image d'un plat et évalue sa qualité.
-1. Génère une recette complète (nom, ingrédients, instructions, catégories) en français. Les catégories doivent provenir de cette liste : ${DEFAULT_CATEGORIES.join(", ")}.
-2. Évalue l'image. Si c'est une capture d'écran, une photo de mauvaise qualité (floue, mal éclairée), ou si elle contient du texte ou des éléments d'interface utilisateur, considère-la de mauvaise qualité.
-3. Retourne le résultat au format JSON, en incluant un booléen \`is_low_quality_image\` qui est vrai si l'image est de mauvaise qualité, et faux sinon.`
-        };
-
-        const response = await aiClient.models.generateContent({
+        // FIX: Use gemini-2.5-flash model for multimodal input.
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: { parts: [imagePart, textPart] },
+            contents: [
+                {
+                    parts: [
+                        imagePart,
+                        { text: `Extrais les détails de la recette de cette image. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions, les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si une valeur n'est pas présente, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.` }
+                    ]
+                }
+            ],
             config: {
                 responseMimeType: "application/json",
-                responseSchema: schema,
-            }
+                responseSchema: recipeSchemaWithImagePrompt,
+            },
         });
-
-        const jsonString = response.text;
-        const generatedData = JSON.parse(jsonString);
         
-        let finalImageUrl = imageUrl;
-        if (generatedData.is_low_quality_image) {
-            console.log(`Image de basse qualité détectée pour "${generatedData.name}". Génération d'une nouvelle image.`);
-            try {
-                finalImageUrl = await generateImageForRecipe(generatedData.name);
-            } catch (imageError) {
-                console.error("Échec de la génération de l'image de remplacement. Utilisation de l'originale.", imageError);
-            }
-        }
-
-        const newRecipe: Recipe = {
-            id: `recipe-${Date.now()}`,
-            name: generatedData.name || "Recette sans nom",
-            imageUrl: finalImageUrl,
-            categories: generatedData.categories || [],
-            ingredients: (generatedData.ingredients || []).map((text: string): Ingredient => ({ text, checked: false })),
-            instructions: (generatedData.instructions || []).map((text: string): Instruction => ({ text, checked: false })),
-        };
-
-        return newRecipe;
+        // FIX: Extract text from response and parse as JSON.
+        const jsonString = response.text.trim();
+        const recipeData = JSON.parse(jsonString);
+        
+        return recipeData;
 
     } catch (error) {
-        console.error("Error generating recipe from image:", error);
-        // Rethrow the original error to be caught by App.tsx and displayed in an alert.
-        throw error;
+        console.error("Error parsing recipe from image:", error);
+        throw new Error("Failed to parse recipe from image. Please try again or enter the details manually.");
     }
 }
 
-async function generateImageForRecipe(recipeName: string): Promise<string> {
+export async function parseRecipeFromUrl(url: string, allCategories: string[]): Promise<Partial<Recipe> & { imagePrompt: string }> {
     try {
-        const aiClient = await getAiClient();
-        console.log(`Generating image for: ${recipeName}`);
-        const response = await aiClient.models.generateImages({
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{ parts: [{ text: `Extrais les détails de la recette de l'URL suivante : ${url}. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions, les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si une valeur n'est pas présente, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.` }] }],
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: recipeSchemaWithImagePrompt,
+            },
+        });
+
+        const jsonString = response.text.trim();
+        const recipeData = JSON.parse(jsonString);
+        return recipeData;
+    } catch (error) {
+        console.error("Error parsing recipe from URL:", error);
+        throw new Error("Failed to parse recipe from URL. Please check the URL or try again.");
+    }
+}
+
+export async function generateImageFromPrompt(prompt: string): Promise<string> {
+    try {
+        const response = await ai.models.generateImages({
             model: 'imagen-4.0-generate-001',
-            prompt: `Une photo de style culinaire, appétissante et professionnelle de "${recipeName}". Arrière-plan simple et lumineux.`,
+            prompt: prompt,
             config: {
               numberOfImages: 1,
               outputMimeType: 'image/jpeg',
-              aspectRatio: '4:3',
+              aspectRatio: '1:1',
             },
         });
 
         if (response.generatedImages && response.generatedImages.length > 0) {
-            const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-            return `data:image/jpeg;base64,${base64ImageBytes}`;
+            return response.generatedImages[0].image.imageBytes;
         } else {
-            console.warn(`Image generation failed for "${recipeName}", falling back to placeholder.`);
-            return `https://picsum.photos/seed/${encodeURIComponent(recipeName)}/800/600`;
+            throw new Error("Image generation failed to return an image.");
         }
     } catch (error) {
-        console.error(`Error generating image for ${recipeName}:`, error);
-        if (error instanceof Error) {
-            throw error;
-        }
-        return `https://picsum.photos/seed/${encodeURIComponent(recipeName)}/800/600`;
-    }
-}
-
-export async function generateRecipeFromUrl(url: string): Promise<Recipe> {
-    try {
-        const aiClient = await getAiClient();
-        const prompt = `Analyse le contenu de la page web à l'URL suivante, trouvée via la recherche Google : ${url}.
-Ton objectif est d'extraire les informations d'une recette et de les retourner dans un format JSON spécifique en français.
-
-Voici tes instructions, suis-les à la lettre :
-1.  **Extraction Précise** : Identifie les éléments suivants de la recette sur la page :
-    - Le nom de la recette.
-    - L'URL de l'image principale de la recette. C'est crucial. Cherche bien un tag \`<img>\` ou une propriété CSS \`background-image\` qui correspond à la photo du plat.
-    - La liste complète des ingrédients, AVEC LES QUANTITÉS EXACTES.
-    - Les instructions de préparation, étape par étape.
-2.  **Règle Stricte pour les Données** : Ne modifie, n'ajoute, ni ne supprime AUCUN ingrédient ou étape de la liste originale. Tu dois copier les quantités, les noms des ingrédients et les instructions TELS QU'ILS APPARAISSENT sur le site source.
-3.  **Traduction** : SEULEMENT APRÈS avoir extrait fidèlement les informations, traduis le nom, les ingrédients et les instructions en français.
-4.  **Catégorisation** : Choisis une ou plusieurs catégories pertinentes pour la recette dans la liste suivante : ${DEFAULT_CATEGORIES.join(", ")}.
-
-Formate ta réponse UNIQUEMENT comme un objet JSON valide, sans aucun autre texte avant ou après. La structure doit être exactement comme suit :
-{
-  "name": "Nom de la recette traduit en français",
-  "imageUrl": "URL de l'image principale (si trouvée, sinon null)",
-  "categories": ["Catégorie 1", "Catégorie 2"],
-  "ingredients": [
-    "Quantité et nom du premier ingrédient, traduit en français",
-    "Quantité et nom du deuxième ingrédient, traduit en français"
-  ],
-  "instructions": [
-    "Première étape des instructions, traduite en français",
-    "Deuxième étape des instructions, traduite en français"
-  ]
-}
-
-Si tu ne trouves absolument aucune recette sur la page, renvoie ce JSON et rien d'autre : {"error": "Aucune recette trouvée sur cette page."}`;
-
-        const textPart = { text: prompt };
-
-        const response = await aiClient.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: [textPart] },
-            config: {
-                tools: [{googleSearch: {}}],
-            }
-        });
-
-        let jsonString = response.text;
-        
-        const jsonMatch = jsonString.match(/```(json)?([\s\S]*?)```/);
-        if (jsonMatch && jsonMatch[2]) {
-            jsonString = jsonMatch[2].trim();
-        } else {
-            jsonString = jsonString.trim();
-        }
-
-        const generatedData = JSON.parse(jsonString);
-
-        if (generatedData.error) {
-            throw new Error("La page ne semble pas contenir de recette valide.");
-        }
-        
-        let imageUrl = generatedData.imageUrl;
-
-        // Plan B: Si l'URL de l'image n'est pas trouvée ou est invalide, on en génère une.
-        if (!imageUrl || !imageUrl.startsWith('http')) {
-            console.log(`URL d'image non trouvée pour "${generatedData.name}". Génération d'une nouvelle image.`);
-            imageUrl = await generateImageForRecipe(generatedData.name || "Plat délicieux");
-        }
-
-        const newRecipe: Recipe = {
-            id: `recipe-${Date.now()}`,
-            name: generatedData.name || "Recette sans nom",
-            imageUrl: imageUrl,
-            categories: generatedData.categories || [],
-            ingredients: (generatedData.ingredients || []).map((text: string): Ingredient => ({ text, checked: false })),
-            instructions: (generatedData.instructions || []).map((text: string): Instruction => ({ text, checked: false })),
-        };
-
-        return newRecipe;
-
-    } catch (error) {
-        console.error("Error generating recipe from URL:", error);
-         if (error instanceof SyntaxError) {
-             throw new Error("Impossible d'analyser la recette depuis l'URL. Le format de la réponse du modèle était inattendu.");
-        }
-        // Rethrow other errors
-        throw error;
+        console.error("Error generating image:", error);
+        throw new Error("Failed to generate an image for the recipe.");
     }
 }

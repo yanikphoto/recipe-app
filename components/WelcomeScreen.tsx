@@ -1,52 +1,40 @@
 import React from 'react';
-import { Page } from '../types';
+import { Screen } from '../types';
 
-interface WelcomeScreenProps {
-  onNavigate: (page: Page) => void;
-  onSearchClick: () => void;
-}
+type WelcomeScreenProps = {
+  setActiveScreen: (screen: Screen) => void;
+};
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onNavigate, onSearchClick }) => {
+const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ setActiveScreen }) => {
   return (
-    <div className="flex flex-col h-full pt-6">
-      <header className="px-6">
+    <div className="min-h-screen w-full bg-[#F9F9F5] flex flex-col items-center justify-center p-6 text-center">
+      <div className="w-full max-w-xs pt-8">
         <img 
-          src="https://images.unsplash.com/photo-1498837167922-ddd27525d352?q=80&w=2070&auto=format&fit=crop" 
-          alt="Assortiment d'ingrédients frais pour la cuisine" 
-          className="w-full h-48 object-cover rounded-2xl shadow-xl" 
+          src="https://images.unsplash.com/photo-1543353071-873f17a7a088?q=80&w=2940&auto=format&fit=crop" 
+          alt="Mosaïque de plats délicieux" 
+          className="w-full h-auto object-cover rounded-2xl shadow-lg"
         />
-      </header>
-      <main className="flex-grow flex flex-col items-center justify-center text-center px-8 py-6">
-        <h1 className="text-4xl font-bold text-stone-800 mb-12">Nos Recettes</h1>
-        <div className="w-full max-w-xs mx-auto space-y-4">
-          <button
-            onClick={() => onNavigate(Page.AddRecipe)}
-            className="w-full bg-[#BDEE63] text-stone-900 font-semibold py-4 rounded-full text-lg transition-all duration-200 active:scale-95 shadow-sm hover:bg-lime-300"
-          >
-            Ajouter une recette
-          </button>
-          <button
-            onClick={() => onNavigate(Page.RecipeList)}
-            className="w-full bg-[#BDEE63] text-stone-900 font-semibold py-4 rounded-full text-lg transition-all duration-200 active:scale-95 shadow-sm hover:bg-lime-300"
-          >
-            Parcourir les recettes
-          </button>
-          <button
-              onClick={onSearchClick}
-              className="w-full bg-[#BDEE63] text-stone-900 font-semibold py-4 rounded-full text-lg transition-all duration-200 active:scale-95 shadow-sm hover:bg-lime-300"
-          >
-            Chercher une recette
-          </button>
-           <button
-              onClick={() => onNavigate(Page.GroceryList)}
-              className="w-full bg-[#BDEE63] text-stone-900 font-semibold py-4 rounded-full text-lg transition-all duration-200 active:scale-95 shadow-sm hover:bg-lime-300"
-          >
-            Liste d'épicerie
-          </button>
-        </div>
-      </main>
+      </div>
+
+      <h1 className="text-4xl font-bold text-gray-800 mt-8">Nos Recettes</h1>
+
+      <div className="w-full mt-10 space-y-4 max-w-xs">
+        <ActionButton onClick={() => setActiveScreen('add')}>Ajouter une recette</ActionButton>
+        <ActionButton onClick={() => setActiveScreen('recipes')}>Parcourir les recettes</ActionButton>
+        <ActionButton onClick={() => setActiveScreen('search')}>Chercher une recette</ActionButton>
+        <ActionButton onClick={() => setActiveScreen('list')}>Liste d'épicerie</ActionButton>
+      </div>
     </div>
   );
 };
+
+const ActionButton: React.FC<{onClick: () => void, children: React.ReactNode}> = ({ onClick, children }) => (
+    <button
+        onClick={onClick}
+        className="w-full bg-[#D4F78F] text-gray-800 font-semibold py-4 px-6 rounded-2xl shadow-sm hover:bg-[#BDEE63] transition-all duration-200 transform hover:scale-105 text-lg"
+    >
+        {children}
+    </button>
+)
 
 export default WelcomeScreen;

@@ -1,517 +1,347 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Recipe, Ingredient, Instruction, GroceryItem } from '../types';
-import { BackIcon, DEFAULT_CATEGORIES, ShareIcon, DeleteRecipeIcon, CloseIcon, EditIcon, SaveIcon, DragHandleIcon, AddToListIcon, AddedToListIcon } from '../constants';
+import React, { useState, useMemo, useRef } from 'react';
+import { Recipe, Ingredient, GroceryListItem } from '../types';
+import AddCategoryModal from './AddCategoryModal';
+import ChangeImageModal from './ChangeImageModal';
+import { DEFAULT_CATEGORIES } from '../constants';
 
-// --- Ingredient Portion Calculation Helpers ---
-
-// Converts fraction strings (e.g., "1/2", "1 1/2") to a number.
-function parseFraction(fraction: string): number {
-  const trimmed = fraction.trim();
-  if (trimmed.includes(' ')) {
-    const [integer, frac] = trimmed.split(' ');
-    const [num, den] = frac.split('/');
-    return parseInt(integer, 10) + parseInt(num, 10) / parseInt(den, 10);
-  } else if (trimmed.includes('/')) {
-    const [num, den] = trimmed.split('/');
-    return parseInt(num, 10) / parseInt(den, 10);
-  }
-  return parseFloat(trimmed);
-}
-
-// Converts a number back into a user-friendly fraction or decimal string.
-function toFractionSimple(value: number): string {
-    if (value === 0) return '0';
-    // For larger numbers or results of complex fractions, round to avoid clutter.
-    if (value >= 10 || (value > 1 && value !== Math.floor(value))) {
-      return String(parseFloat(value.toFixed(2)).toString().replace(/\.00$/, ''));
-    }
-    
-    const integerPart = Math.floor(value);
-    const fractionalPart = value - integerPart;
-
-    let fractionStr = '';
-    if (fractionalPart > 0.01) {
-        if (Math.abs(fractionalPart - 1/8) < 0.02) fractionStr = '1/8';
-        else if (Math.abs(fractionalPart - 1/4) < 0.02) fractionStr = '1/4';
-        else if (Math.abs(fractionalPart - 1/3) < 0.02) fractionStr = '1/3';
-        else if (Math.abs(fractionalPart - 3/8) < 0.02) fractionStr = '3/8';
-        else if (Math.abs(fractionalPart - 1/2) < 0.02) fractionStr = '1/2';
-        else if (Math.abs(fractionalPart - 5/8) < 0.02) fractionStr = '5/8';
-        else if (Math.abs(fractionalPart - 2/3) < 0.02) fractionStr = '2/3';
-        else if (Math.abs(fractionalPart - 3/4) < 0.02) fractionStr = '3/4';
-        else if (Math.abs(fractionalPart - 7/8) < 0.02) fractionStr = '7/8';
-        else {
-            return String(parseFloat(value.toFixed(2)).toString().replace(/\.00$/, ''));
-        }
-    }
-    
-    if (integerPart > 0) {
-        return fractionStr ? `${integerPart} ${fractionStr}` : String(integerPart);
-    } else {
-        return fractionStr || '0';
-    }
-}
-
-// Applies the multiplier to all numerical quantities in an ingredient list.
-function adjustIngredientPortions(ingredients: Ingredient[], multiplier: number): Ingredient[] {
-  if (multiplier === 1) {
-    return ingredients;
-  }
-  
-  const numberRegex = /(\d+\s+\d+\/\d+)|(\d+\/\d+)|(\d*\.\d+)|(\d+)/g;
-
-  return ingredients.map(ingredient => {
-    const newText = ingredient.text.replace(numberRegex, (match) => {
-      const originalValue = parseFraction(match);
-      if (isNaN(originalValue)) return match;
-
-      const newValue = originalValue * multiplier;
-      return toFractionSimple(newValue);
-    });
-
-    return { ...ingredient, text: newText };
-  });
-}
-
-
-interface RecipeDetailScreenProps {
+type RecipeDetailScreenProps = {
   recipe: Recipe;
   onBack: () => void;
-  onUpdateRecipe: (updatedRecipe: Recipe) => void;
-  onDeleteRecipe: (recipe: Recipe) => void;
-  groceryList: GroceryItem[];
-  onAddGroceryItem: (text: string) => void;
-  onDeleteGroceryItem: (id: string) => void;
+  onDeleteRequest: (id: string) => void;
+  onUpdateRecipe: (recipe: Recipe) => void;
+  groceryList: GroceryListItem[];
+  onToggleGroceryItem: (ingredient: Ingredient) => void;
+};
+
+const getMetricDisplay = (ing: Ingredient): string | null => {
+    // A very simple map for demo purposes.
+    const conversions: { [key: string]: { [unit: string]: number } } = {
+        'farine': { 'tasse': 120, 'tasses': 120 },
+        'sucre': { 'tasse': 200, 'tasses': 200 },
+        'sucre en poudre': { 'tasse': 200, 'tasses': 200 },
+        'cassonade': { 'tasse': 220, 'tasses': 220 },
+        'beurre': { 'tasse': 227, 'tasses': 227, 'c.à.s': 14.2 },
+        'lait': { 'tasse': 240, 'tasses': 240 },
+        'eau': { 'tasse': 236, 'tasses': 236 },
+        'huile': { 'tasse': 218, 'tasses': 218, 'c.à.s': 13.6 },
+    };
+    const ingredientName = ing.name.toLowerCase();
+    const unit = ing.unit?.toLowerCase();
+    if (unit && ing.quantity) {
+        for (const key in conversions) {
+            if (ingredientName.includes(key) && conversions[key][unit]) {
+                const grams = conversions[key][unit] * ing.quantity;
+                return `(${Math.round(grams)}g)`;
+            }
+        }
+    }
+    return null;
 }
 
-const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onUpdateRecipe, onDeleteRecipe, groceryList, onAddGroceryItem, onDeleteGroceryItem }) => {
-  const [localRecipe, setLocalRecipe] = useState<Recipe>(recipe);
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [newCategoryInput, setNewCategoryInput] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedRecipe, setEditedRecipe] = useState<Recipe>(recipe);
-  const [draggedInfo, setDraggedInfo] = useState<{ listType: 'ingredients' | 'instructions'; index: number } | null>(null);
-  const [portionMultiplier, setPortionMultiplier] = useState(1);
+const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [editableRecipe, setEditableRecipe] = useState<Recipe>(recipe);
 
-  useEffect(() => {
-    setLocalRecipe(recipe);
-    setEditedRecipe(recipe); // Keep edit state in sync if recipe prop changes
-    setPortionMultiplier(1); // Reset portion on new recipe view
-  }, [recipe]);
-  
-  const displayedIngredients = useMemo(() => {
-    return adjustIngredientPortions(localRecipe.ingredients, portionMultiplier);
-  }, [localRecipe.ingredients, portionMultiplier]);
-  
-  const groceryItemMap = useMemo(() => {
-    return new Map(groceryList.map(item => [item.text.trim().toLowerCase(), item]));
-  }, [groceryList]);
+    const [multiplier, setMultiplier] = useState(1);
+    const [crossedIngredients, setCrossedIngredients] = useState<Set<string>>(new Set());
+    const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
+    const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+    const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+    
+    // Refs for drag and drop
+    const dragItem = useRef<number | null>(null);
+    const dragOverItem = useRef<number | null>(null);
 
-  const handleStartEditing = () => {
-    setEditedRecipe(JSON.parse(JSON.stringify(localRecipe))); // Deep copy for editing
-    setIsEditing(true);
-  };
-  
-  const handleCancelEdit = () => {
-    setEditedRecipe(localRecipe); // Revert changes
-    setIsEditing(false);
-  };
-
-  const handleSaveChanges = () => {
-    onUpdateRecipe(editedRecipe);
-    setLocalRecipe(editedRecipe);
-    setIsEditing(false);
-  };
-
-  const handleNameChange = (newName: string) => {
-    setEditedRecipe(prev => ({ ...prev, name: newName }));
-  };
-
-  const handleListItemChange = (list: 'ingredients' | 'instructions', index: number, newText: string) => {
-    const newList = [...editedRecipe[list]];
-    const item = { ...(newList[index] as Ingredient | Instruction) };
-    item.text = newText;
-    newList[index] = item;
-
-    if (list === 'ingredients') {
-      setEditedRecipe(prev => ({ ...prev, ingredients: newList as Ingredient[] }));
-    } else {
-      setEditedRecipe(prev => ({ ...prev, instructions: newList as Instruction[] }));
+    const getAdjustedQuantity = (quantity?: number) => {
+        if (quantity === undefined) return '';
+        const result = quantity * multiplier;
+        // Handle fractions for better display
+        if (result % 1 === 0.5) return `${Math.floor(result) || ''} ½`;
+        if (result % 1 === 0.25) return `${Math.floor(result) || ''} ¼`;
+        if (result % 1 === 0.75) return `${Math.floor(result) || ''} ¾`;
+        if (result % 1 !== 0) return result.toFixed(2);
+        return result;
     }
-  };
 
-  const handleIngredientToggle = (index: number) => {
-    const newIngredients = [...localRecipe.ingredients];
-    newIngredients[index].checked = !newIngredients[index].checked;
-    const updatedRecipe = { ...localRecipe, ingredients: newIngredients };
-    setLocalRecipe(updatedRecipe);
-    onUpdateRecipe(updatedRecipe);
-  };
+    const groceryListSet = useMemo(() => new Set(groceryList.map(item => item.name.toLowerCase())), [groceryList]);
 
-  const handleInstructionToggle = (index: number) => {
-    const newInstructions = [...localRecipe.instructions];
-    newInstructions[index].checked = !newInstructions[index].checked;
-    const updatedRecipe = { ...localRecipe, instructions: newInstructions };
-    setLocalRecipe(updatedRecipe);
-    onUpdateRecipe(updatedRecipe);
-  };
+    const isIngredientInGroceryList = (ingredient: Ingredient) => {
+         return groceryList.some(item => item.name.toLowerCase().includes(ingredient.name.toLowerCase()));
+    };
 
-  const clearAllChecks = () => {
-    const clearedIngredients = localRecipe.ingredients.map(ing => ({ ...ing, checked: false }));
-    const clearedInstructions = localRecipe.instructions.map(ins => ({ ...ins, checked: false }));
-    const updatedRecipe = { ...localRecipe, ingredients: clearedIngredients, instructions: clearedInstructions };
-    setLocalRecipe(updatedRecipe);
-    onUpdateRecipe(updatedRecipe);
-  };
-
-  const handleDeleteCategory = (categoryToDelete: string) => {
-    const newCategories = localRecipe.categories.filter(cat => cat !== categoryToDelete);
-    const updatedRecipe = { ...localRecipe, categories: newCategories };
-    setLocalRecipe(updatedRecipe);
-    onUpdateRecipe(updatedRecipe);
-  };
-
-  const handleAddCategory = (categoryToAdd: string) => {
-    const trimmedCategory = categoryToAdd.trim();
-    if (trimmedCategory && !localRecipe.categories.some(cat => cat.toLowerCase() === trimmedCategory.toLowerCase())) {
-        const newCategories = [...localRecipe.categories, trimmedCategory];
-        const updatedRecipe = { ...localRecipe, categories: newCategories };
-        setLocalRecipe(updatedRecipe);
-        onUpdateRecipe(updatedRecipe);
-    }
-    setNewCategoryInput('');
-    setIsCategoryModalOpen(false);
-  };
-  
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    handleAddCategory(newCategoryInput);
-  };
-
-  const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        const ingredientsText = localRecipe.ingredients.map(ing => `• ${ing.text}`).join('\n');
-        const instructionsText = localRecipe.instructions.map((ins, index) => `${index + 1}. ${ins.text}`).join('\n\n');
-        
-        const shareText = `*${localRecipe.name}*\n\n*Ingrédients :*\n${ingredientsText}\n\n*Préparation :*\n${instructionsText}`;
-
-        await navigator.share({
-          title: `Recette : ${localRecipe.name}`,
-          text: shareText,
+    const toggleIngredientCrossed = (id: string) => {
+        setCrossedIngredients(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            return newSet;
         });
-      } catch (error) {
-        // User might cancel the share action, which is normal and shouldn't be logged as an error.
-        if (error instanceof DOMException && error.name === 'AbortError') {
-            console.log('Share action was cancelled by the user.');
+    };
+    
+    const allIngredientsOnList = useMemo(() => {
+        if (recipe.ingredients.length === 0) return false;
+        return recipe.ingredients.every(ing => {
+            const adjustedIngredient = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
+            const ingredientString = `${adjustedIngredient.quantity ? `${getAdjustedQuantity(adjustedIngredient.quantity)} ` : ''}${adjustedIngredient.unit || ''} ${adjustedIngredient.name}`.trim().toLowerCase();
+            return groceryList.some(item => item.name.toLowerCase().includes(ing.name.toLowerCase()));
+        });
+    }, [recipe.ingredients, groceryList, multiplier]);
+
+    const handleToggleAllToList = () => {
+        const areAllOnList = recipe.ingredients.every(isIngredientInGroceryList);
+        recipe.ingredients.forEach(ing => {
+            const adjustedIngredient = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
+            const isOnList = isIngredientInGroceryList(adjustedIngredient);
+            if ((areAllOnList && isOnList) || (!areAllOnList && !isOnList)) {
+                 onToggleGroceryItem(adjustedIngredient);
+            }
+        });
+    };
+    
+    const allIngredientsCrossed = useMemo(() => {
+        if (recipe.ingredients.length === 0) return false;
+        return crossedIngredients.size === recipe.ingredients.length;
+    }, [recipe.ingredients.length, crossedIngredients.size]);
+
+    const handleToggleCrossAllIngredients = () => {
+        if (allIngredientsCrossed) {
+            setCrossedIngredients(new Set());
         } else {
-            console.error('Erreur lors du partage:', error);
+            const allIngredientIds = new Set(recipe.ingredients.map(ing => ing.id));
+            setCrossedIngredients(allIngredientIds);
         }
-      }
-    } else {
-      alert("La fonction de partage n'est pas supportée sur cet appareil.");
+    };
+
+    const toggleStep = (index: number) => {
+        setCheckedSteps(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(index)) newSet.delete(index);
+            else newSet.add(index);
+            return newSet;
+        });
     }
-  };
+    
+    const handleAddCategory = (category: string) => {
+        if (!recipe.categories.map(c => c.toLowerCase()).includes(category.toLowerCase())) {
+            const updatedRecipe = { ...recipe, categories: [...recipe.categories, category] };
+            onUpdateRecipe(updatedRecipe);
+        }
+    };
 
-  // --- Drag and Drop Handlers ---
-  const handleReorder = (listType: 'ingredients' | 'instructions', dragIndex: number, dropIndex: number) => {
-      setEditedRecipe(prev => {
-          if (dragIndex === dropIndex) return prev;
-          
-          const list = [...prev[listType]];
-          const [draggedItem] = list.splice(dragIndex, 1);
-          list.splice(dropIndex, 0, draggedItem);
-          
-          if (listType === 'ingredients') {
-              return { ...prev, ingredients: list as Ingredient[] };
-          } else {
-              return { ...prev, instructions: list as Instruction[] };
-          }
-      });
-  };
+    const handleRemoveCategory = (category: string) => {
+        const updatedRecipe = { ...recipe, categories: recipe.categories.filter(c => c !== category) };
+        onUpdateRecipe(updatedRecipe);
+    };
 
-  const handleDragStart = (listType: 'ingredients' | 'instructions', index: number) => {
-      setDraggedInfo({ listType, index });
-  };
+    const handleShare = async () => {
+        const ingredientsText = recipe.ingredients.map(ing => `• ${getAdjustedQuantity(ing.quantity)} ${ing.unit || ''} ${ing.name}`.trim()).join('\n');
+        const instructionsText = recipe.instructions.map((step, index) => `${index + 1}. ${step}`).join('\n');
+        const shareData = { title: recipe.title, text: `Découvrez cette recette: ${recipe.title}\n\nIngrédients:\n${ingredientsText}\n\nPréparation:\n${instructionsText}` };
+        if (navigator.share) {
+            try { await navigator.share(shareData); } catch (err) { console.error('Share failed:', err); }
+        } else { alert("La fonction de partage n'est pas supportée sur ce navigateur."); }
+    };
+    
+    // --- Edit Mode Handlers ---
+    const handleToggleEdit = () => {
+        if (isEditing) {
+            onUpdateRecipe(editableRecipe);
+        } else {
+            setEditableRecipe(recipe);
+        }
+        setIsEditing(!isEditing);
+    };
+    
+    const handleImageChange = (newImageUrl: string) => {
+        setEditableRecipe(prev => ({ ...prev, imageUrl: newImageUrl }));
+        setIsImageModalOpen(false);
+    };
 
-  const handleDragOver = (e: React.DragEvent) => {
-      e.preventDefault();
-  };
+    const handleIngredientChange = (index: number, field: keyof Ingredient, value: string | number) => {
+        const newIngredients = [...editableRecipe.ingredients];
+        (newIngredients[index] as any)[field] = value;
+        setEditableRecipe(prev => ({ ...prev, ingredients: newIngredients }));
+    };
 
-  const handleDrop = (listType: 'ingredients' | 'instructions', dropIndex: number) => {
-      if (draggedInfo && draggedInfo.listType === listType) {
-          handleReorder(listType, draggedInfo.index, dropIndex);
-      }
-      setDraggedInfo(null);
-  };
+    const handleAddIngredient = () => {
+        const newIngredient: Ingredient = { id: crypto.randomUUID(), name: '', quantity: undefined, unit: '' };
+        setEditableRecipe(prev => ({ ...prev, ingredients: [...prev.ingredients, newIngredient] }));
+    };
 
-  const handleDragEnd = () => {
-      setDraggedInfo(null);
-  };
+    const handleRemoveIngredient = (index: number) => {
+        setEditableRecipe(prev => ({ ...prev, ingredients: prev.ingredients.filter((_, i) => i !== index) }));
+    };
 
-  const availableDefaultCategories = DEFAULT_CATEGORIES.filter(
-    defaultCat => !localRecipe.categories.some(recipeCat => recipeCat.toLowerCase() === defaultCat.toLowerCase())
-  );
-  
-  const portionButtons = [
-    { label: '1/2X', multiplier: 0.5 },
-    { label: '1X', multiplier: 1 },
-    { label: '2X', multiplier: 2 },
-  ];
+    const handleInstructionChange = (index: number, value: string) => {
+        const newInstructions = [...editableRecipe.instructions];
+        newInstructions[index] = value;
+        setEditableRecipe(prev => ({ ...prev, instructions: newInstructions }));
+    };
+
+    const handleAddInstruction = () => {
+        setEditableRecipe(prev => ({ ...prev, instructions: [...prev.instructions, ''] }));
+    };
+
+    const handleRemoveInstruction = (index: number) => {
+        setEditableRecipe(prev => ({ ...prev, instructions: prev.instructions.filter((_, i) => i !== index) }));
+    };
+    
+    const handleDragSort = (list: any[], setList: (list: any[]) => void) => {
+        if (dragItem.current === null || dragOverItem.current === null) return;
+        const newList = [...list];
+        const draggedItemContent = newList.splice(dragItem.current, 1)[0];
+        newList.splice(dragOverItem.current, 0, draggedItemContent);
+        dragItem.current = null;
+        dragOverItem.current = null;
+        setList(newList);
+    };
 
   return (
-    <div className="bg-[#FBF9F4] min-h-full pb-24">
-      <header className="relative h-72">
-        <img src={localRecipe.imageUrl} alt={localRecipe.name} className="w-full h-full object-cover" />
+    <>
+    <div className="bg-[#F9F9F5] min-h-screen">
+      <div className="relative h-80">
+        <img src={isEditing ? editableRecipe.imageUrl : recipe.imageUrl} alt={isEditing ? editableRecipe.title : recipe.title} className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center text-white">
-          <button onClick={isEditing ? handleCancelEdit : onBack} className="bg-black/30 p-2 rounded-full backdrop-blur-sm">
-            <BackIcon />
-          </button>
-          <div className="flex items-center gap-2">
-            {isEditing ? (
-              <button onClick={handleSaveChanges} className="rounded-xl shadow-lg transition-all active:scale-90 hover:scale-105" aria-label="Sauvegarder les modifications">
-                <SaveIcon />
-              </button>
-            ) : (
-              <button onClick={handleStartEditing} className="rounded-xl shadow-lg transition-all active:scale-90 hover:scale-105" aria-label="Modifier la recette">
-                <EditIcon />
-              </button>
-            )}
-           <button
-             onClick={() => onDeleteRecipe(localRecipe)}
-            className={`rounded-xl shadow-lg transition-all active:scale-90 hover:scale-105 ${isEditing ? 'opacity-50 pointer-events-none' : ''}`}
-            aria-label="Supprimer la recette"
-            disabled={isEditing}
-            >
-            <DeleteRecipeIcon />
-          </button>
-          </div>
-        </div>
-        {isEditing ? (
-          <input
-            type="text"
-            value={editedRecipe.name}
-            onChange={(e) => handleNameChange(e.target.value)}
-            className="absolute bottom-0 left-0 w-full bg-transparent px-6 pb-6 pt-16 text-4xl font-bold text-white leading-tight border-none focus:outline-none focus:ring-2 focus:ring-white/50"
-            autoFocus
-          />
-        ) : (
-          <h1 className="absolute bottom-0 left-0 p-6 text-4xl font-bold text-white leading-tight">{localRecipe.name}</h1>
-        )}
-      </header>
 
-      <main className="p-6 bg-white rounded-t-3xl -mt-6 relative">
-        <div className={`mb-6 ${isEditing ? 'opacity-50 pointer-events-none' : ''}`}>
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold text-stone-800">Catégories</h2>
-            <button
-              onClick={handleShare}
-              className="p-2 rounded-full text-stone-500 hover:bg-stone-100 hover:text-stone-800 transition-colors"
-              aria-label="Partager la recette"
-            >
-              <ShareIcon />
+        <div className="absolute top-4 left-4">
+            <button onClick={onBack} className="bg-black/30 rounded-full p-2 text-white hover:bg-black/50 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
-          </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            {localRecipe.categories.map((cat) => (
-              <span key={cat} className="bg-stone-100 text-stone-600 pl-3 pr-2 py-1.5 rounded-full text-sm font-medium inline-flex items-center">
-                {cat}
-                <button
-                  onClick={() => handleDeleteCategory(cat)}
-                  className="ml-2 w-4 h-4 rounded-full bg-stone-300 hover:bg-stone-400 flex items-center justify-center text-stone-600 transition-colors"
-                  aria-label={`Supprimer la catégorie ${cat}`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+        </div>
+
+        <div className="absolute top-4 right-4 flex gap-2">
+            {isEditing && (
+                <button onClick={() => setIsImageModalOpen(true)} className="bg-white rounded-full p-2.5 shadow-md" aria-label="Changer l'image">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
                 </button>
-              </span>
-            ))}
-             <button onClick={() => setIsCategoryModalOpen(true)} className="w-8 h-8 bg-lime-200/60 text-lime-800 rounded-full flex items-center justify-center font-bold text-xl hover:bg-lime-200 transition-colors">+</button>
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold text-stone-800">Ingrédients</h2>
-            <div className="flex items-center gap-4">
-              {!isEditing && <button onClick={clearAllChecks} className="text-sm text-stone-500 hover:text-stone-800 font-medium">Tout effacer</button>}
-              {!isEditing && <span className="text-sm font-semibold text-stone-500">+ Liste</span>}
-            </div>
-          </div>
-          
-          {!isEditing && (
-            <div className="mb-4">
-              <div className="inline-flex items-center bg-stone-100 rounded-full border border-stone-200 p-1 space-x-1">
-                {portionButtons.map((button) => {
-                    const isSelected = portionMultiplier === button.multiplier;
-                    return (
-                        <button
-                            key={button.multiplier}
-                            onClick={() => setPortionMultiplier(button.multiplier)}
-                            className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-1 ${isSelected ? 'bg-white shadow text-stone-900' : 'text-stone-500'}`}
-                        >
-                            {isSelected && (
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                                    <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.35 2.35 4.493-6.74a.75.75 0 0 1 1.04-.208Z" clipRule="evenodd" />
-                                </svg>
-                            )}
-                            {button.label}
-                        </button>
-                    )
-                })}
-              </div>
-            </div>
-          )}
-
-          <ul className="space-y-3">
-            {(isEditing ? editedRecipe.ingredients : displayedIngredients).map((ing, index) => {
-              const existingGroceryItem = groceryItemMap.get(ing.text.trim().toLowerCase());
-              return (
-              <li 
-                key={index} 
-                className={`flex items-center transition-shadow ${draggedInfo?.listType === 'ingredients' && draggedInfo?.index === index ? 'opacity-40' : ''}`}
-                draggable={isEditing}
-                onDragStart={isEditing ? () => handleDragStart('ingredients', index) : undefined}
-                onDragOver={isEditing ? handleDragOver : undefined}
-                onDrop={isEditing ? () => handleDrop('ingredients', index) : undefined}
-                onDragEnd={isEditing ? handleDragEnd : undefined}
-              >
-                 {isEditing ? (
-                  <div className="flex items-center w-full gap-3 p-1 rounded-lg hover:bg-stone-50">
-                    <input
-                      type="text"
-                      value={ing.text}
-                      onChange={(e) => handleListItemChange('ingredients', index, e.target.value)}
-                      className="w-full bg-stone-100 px-3 py-2 border border-stone-200 rounded-lg focus:ring-2 focus:ring-[#BDEE63] focus:border-[#BDEE63] transition"
-                    />
-                    <div className="flex-shrink-0">
-                      <DragHandleIcon />
-                    </div>
-                  </div>
-                 ) : (
-                  <>
-                    <div
-                      className="flex items-center flex-1 cursor-pointer group"
-                      onClick={() => handleIngredientToggle(index)}
-                    >
-                      <div className={`w-5 h-5 rounded-md border-2 ${ing.checked ? 'bg-[#BDEE63] border-[#BDEE63]' : 'border-stone-300'} flex items-center justify-center mr-3 transition-colors flex-shrink-0`}>
-                        {ing.checked && <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-stone-900"><path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.35 2.35 4.493-6.74a.75.75 0 0 1 1.04-.208Z" clipRule="evenodd" /></svg>}
-                      </div>
-                      <span className={`flex-1 ${ing.checked ? 'line-through text-stone-400' : 'text-stone-700'}`}>{ing.text}</span>
-                    </div>
-                    <div className="ml-3 flex-shrink-0 w-8 h-8 flex items-center justify-center">
-                       <button
-                          onClick={() => {
-                            if (existingGroceryItem) {
-                              onDeleteGroceryItem(existingGroceryItem.id);
-                            } else {
-                              onAddGroceryItem(ing.text);
-                            }
-                          }}
-                          className="p-1 rounded-full group"
-                          aria-label={existingGroceryItem ? `Retirer ${ing.text} de la liste d'épicerie` : `Ajouter ${ing.text} à la liste d'épicerie`}
-                        >
-                          {existingGroceryItem ? <AddedToListIcon /> : <AddToListIcon />}
-                        </button>
-                    </div>
-                  </>
-                 )}
-              </li>
-            )})}
-          </ul>
-        </div>
-
-        <div>
-          <h2 className="text-lg font-semibold text-stone-800 mb-3">Préparation</h2>
-          <ol className="space-y-4">
-            {(isEditing ? editedRecipe.instructions : localRecipe.instructions).map((ins, index) => (
-               <li 
-                key={index} 
-                className={`flex items-start transition-shadow ${draggedInfo?.listType === 'instructions' && draggedInfo?.index === index ? 'opacity-40' : ''}`}
-                onClick={() => !isEditing && handleInstructionToggle(index)}
-                draggable={isEditing}
-                onDragStart={isEditing ? () => handleDragStart('instructions', index) : undefined}
-                onDragOver={isEditing ? handleDragOver : undefined}
-                onDrop={isEditing ? () => handleDrop('instructions', index) : undefined}
-                onDragEnd={isEditing ? handleDragEnd : undefined}
-               >
-                 {isEditing ? (
-                   <div className="flex items-start w-full gap-3 p-1 rounded-lg hover:bg-stone-50">
-                      <span className="font-bold text-lg text-stone-400 mt-1">{index + 1}.</span>
-                      <textarea
-                        value={ins.text}
-                        onChange={(e) => handleListItemChange('instructions', index, e.target.value)}
-                        className="w-full bg-stone-100 px-3 py-2 border border-stone-200 rounded-lg focus:ring-2 focus:ring-[#BDEE63] focus:border-[#BDEE63] transition min-h-[60px]"
-                        rows={3}
-                      />
-                      <div className="flex-shrink-0 mt-1">
-                          <DragHandleIcon />
-                      </div>
-                   </div>
-                 ) : (
-                   <div className="flex items-start cursor-pointer w-full">
-                    <div className="flex-shrink-0 flex items-center">
-                        <div className={`w-5 h-5 rounded-full border-2 ${ins.checked ? 'bg-[#BDEE63] border-[#BDEE63]' : 'border-stone-300'} flex items-center justify-center mr-3 mt-1 transition-colors`}>
-                            {ins.checked && <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-stone-900"><path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.35 2.35 4.493-6.74a.75.75 0 0 1 1.04-.208Z" clipRule="evenodd" /></svg>}
-                        </div>
-                        <span className={`font-bold text-lg mr-3 ${ins.checked ? 'text-stone-400' : 'text-[#BDEE63]'}`}>{index + 1}.</span>
-                    </div>
-                    <p className={`flex-1 ${ins.checked ? 'line-through text-stone-400' : 'text-stone-700'}`}>{ins.text}</p>
-                   </div>
-                 )}
-              </li>
-            ))}
-          </ol>
-        </div>
-      </main>
-
-      {isCategoryModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setIsCategoryModalOpen(false)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-stone-800">Ajouter une catégorie</h3>
-                <button onClick={() => setIsCategoryModalOpen(false)} className="p-1 rounded-full hover:bg-stone-100">
-                    <CloseIcon />
-                </button>
-            </div>
-
-            {availableDefaultCategories.length > 0 && (
-                <div className="mb-4">
-                    <h4 className="text-sm font-medium text-stone-500 mb-2">Suggestions</h4>
-                    <div className="flex flex-wrap gap-2">
-                        {availableDefaultCategories.map(cat => (
-                            <button key={cat} onClick={() => handleAddCategory(cat)} className="bg-lime-100 text-lime-800 px-3 py-1.5 rounded-full text-sm font-medium hover:bg-lime-200 transition-colors">
-                                {cat}
-                            </button>
-                        ))}
-                    </div>
-                </div>
             )}
-            
-            <div>
-                <h4 className="text-sm font-medium text-stone-500 mb-2">Ajouter une nouvelle</h4>
-                 <form onSubmit={handleFormSubmit}>
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="text"
-                            value={newCategoryInput}
-                            onChange={(e) => setNewCategoryInput(e.target.value)}
-                            placeholder="Ex: Végétarien"
-                            className="flex-grow bg-stone-100 px-4 py-2 border border-stone-200 rounded-lg focus:ring-2 focus:ring-[#BDEE63] focus:border-[#BDEE63] transition"
-                            autoFocus
-                        />
-                        <button type="submit" className="bg-[#BDEE63] text-stone-900 font-semibold py-2 px-4 rounded-lg transition-transform active:scale-95 shadow-sm disabled:bg-stone-200" disabled={!newCategoryInput.trim()}>
-                            Ajouter
-                        </button>
-                    </div>
-                 </form>
-            </div>
-          </div>
+            <button onClick={handleToggleEdit} className="bg-white rounded-full p-2.5 shadow-md">
+                {isEditing ? 
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-lime-600"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> :
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                }
+            </button>
+            {!isEditing &&
+                <button onClick={() => onDeleteRequest(recipe.id)} className="bg-white rounded-full p-2.5 shadow-md">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            }
         </div>
-      )}
+        
+        {isEditing ? (
+            <input type="text" value={editableRecipe.title} onChange={(e) => setEditableRecipe(prev => ({ ...prev, title: e.target.value }))} className="absolute bottom-6 left-0 px-6 w-full bg-transparent text-4xl font-bold text-white tracking-tight border-none focus:outline-none focus:ring-0" />
+        ) : (
+            <h1 className="absolute bottom-6 px-6 text-4xl font-bold text-white tracking-tight">{recipe.title}</h1>
+        )}
+      </div>
+
+      <div className="bg-white rounded-t-3xl -mt-6 relative p-6 z-10 pb-24">
+        {!isEditing && (
+            <>
+                {/* Categories */}
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold text-gray-800">Catégories</h2>
+                    <button onClick={handleShare}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg></button>
+                </div>
+                <div className="flex flex-wrap gap-3 items-center mb-8">
+                    {recipe.categories.map(category => (
+                        <div key={category} className="bg-lime-100 text-lime-800 text-lg font-semibold pl-5 pr-3 py-2.5 rounded-full flex items-center gap-2">
+                            <span>{category}</span>
+                            <button onClick={() => handleRemoveCategory(category)} className="text-lime-400 hover:text-lime-700">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                    ))}
+                    <button onClick={() => setIsCategoryModalOpen(true)} className="bg-lime-100 text-lime-800 w-12 h-12 flex items-center justify-center rounded-full font-bold text-2xl hover:bg-lime-200 transition-colors">+</button>
+                </div>
+            </>
+        )}
+        
+        {/* Ingredients */}
+        <h2 className="text-3xl font-bold text-gray-800 mb-6">Ingrédients</h2>
+        {!isEditing && (
+            <>
+                <div className="flex justify-center items-center bg-gray-100 rounded-full p-1 mb-4">
+                    <button onClick={() => setMultiplier(0.5)} className={`w-full px-4 py-2 rounded-full font-bold transition-all ${multiplier === 0.5 ? 'bg-white shadow' : 'text-gray-500'}`}>1/2X</button>
+                    <button onClick={() => setMultiplier(1)} className={`w-full px-4 py-2 rounded-full font-bold transition-all ${multiplier === 1 ? 'bg-white shadow' : 'text-gray-500'}`}>1X</button>
+                    <button onClick={() => setMultiplier(2)} className={`w-full px-4 py-2 rounded-full font-bold transition-all ${multiplier === 2 ? 'bg-white shadow' : 'text-gray-500'}`}>2X</button>
+                </div>
+                <div className="flex justify-between items-center mb-4 -mx-2">
+                     <button onClick={handleToggleCrossAllIngredients} className={`transition-colors p-2 rounded-full ${allIngredientsCrossed ? 'text-lime-500 hover:text-lime-700' : 'text-gray-500 hover:text-gray-800'}`} aria-label="Tout cocher ou décocher les ingrédients">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M19.3333 1H7.66667C6.02985 1 4.66667 2.36318 4.66667 4V6.33333H6.33333V4C6.33333 3.26362 6.93029 2.66667 7.66667 2.66667H19.3333C20.0697 2.66667 20.6667 3.26362 20.6667 4V15.6667C20.6667 16.403 20.0697 17 19.3333 17H18V18.6667H19.3333C21.0001 18.6667 22.3333 17.3335 22.3333 15.6667V4C22.3333 2.36318 21.0001 1 19.3333 1Z"/>
+                            <path fillRule="evenodd" clipRule="evenodd" d="M1.66667 7.33333C1.66667 5.66652 3.00015 4.33333 4.66667 4.33333H16C17.6668 4.33333 19 5.66652 19 7.33333V19C19 20.6668 17.6668 22 16 22H4.66667C3.00015 22 1.66667 20.6668 1.66667 19V7.33333ZM13.1602 11.0102C13.562 10.6083 14.218 10.6083 14.6198 11.0102L15.0102 11.4005C15.412 11.8024 15.412 12.4583 15.0102 12.8602L9.86016 18.0102C9.45831 18.412 8.80239 18.412 8.40054 18.0102L5.01016 14.6202C4.60831 14.2183 4.60831 13.5624 5.01016 13.1605L5.40054 12.7702C5.80239 12.3683 6.45831 12.3683 6.86016 12.7702L8.90054 14.8105L13.1602 11.0102Z"/>
+                        </svg>
+                    </button>
+                     <button onClick={handleToggleAllToList} className={`transition-colors p-2 rounded-full ${allIngredientsOnList ? 'text-lime-500 hover:text-lime-700' : 'text-gray-500 hover:text-gray-800'}`} aria-label="Tout ajouter ou retirer de la liste d'épicerie">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M19.3333 1H7.66667C6.02985 1 4.66667 2.36318 4.66667 4V6.33333H6.33333V4C6.33333 3.26362 6.93029 2.66667 7.66667 2.66667H19.3333C20.0697 2.66667 20.6667 3.26362 20.6667 4V15.6667C20.6667 16.403 20.0697 17 19.3333 17H18V18.6667H19.3333C21.0001 18.6667 22.3333 17.3335 22.3333 15.6667V4C22.3333 2.36318 21.0001 1 19.3333 1Z"/>
+                            <path fillRule="evenodd" clipRule="evenodd" d="M1.66667 7.33333C1.66667 5.66652 3.00015 4.33333 4.66667 4.33333H16C17.6668 4.33333 19 5.66652 19 7.33333V19C19 20.6668 17.6668 22 16 22H4.66667C3.00015 22 1.66667 20.6668 1.66667 19V7.33333ZM13.1602 11.0102C13.562 10.6083 14.218 10.6083 14.6198 11.0102L15.0102 11.4005C15.412 11.8024 15.412 12.4583 15.0102 12.8602L9.86016 18.0102C9.45831 18.412 8.80239 18.412 8.40054 18.0102L5.01016 14.6202C4.60831 14.2183 4.60831 13.5624 5.01016 13.1605L5.40054 12.7702C5.80239 12.3683 6.45831 12.3683 6.86016 12.7702L8.90054 14.8105L13.1602 11.0102Z"/>
+                        </svg>
+                    </button>
+                </div>
+            </>
+        )}
+
+        <ul className="space-y-4 mb-8">
+           {isEditing ? editableRecipe.ingredients.map((ing, index) => (
+                <li key={ing.id} draggable onDragStart={() => dragItem.current = index} onDragEnter={() => dragOverItem.current = index} onDragEnd={() => handleDragSort(editableRecipe.ingredients, (list) => setEditableRecipe(p => ({ ...p, ingredients: list })))} onDragOver={(e) => e.preventDefault()} className="flex items-center gap-2 bg-gray-100 p-2 rounded-lg">
+                    <span className="cursor-grab text-gray-400">☰</span>
+                    <input type="number" placeholder="Qt" value={ing.quantity || ''} onChange={(e) => handleIngredientChange(index, 'quantity', e.target.value ? parseFloat(e.target.value) : undefined)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)} className="w-20 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <input type="text" placeholder="Nom de l'ingrédient" value={ing.name} onChange={(e) => handleIngredientChange(index, 'name', e.target.value)} className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <button onClick={() => handleRemoveIngredient(index)} className="text-red-500 p-1">✕</button>
+                </li>
+           )) : recipe.ingredients.map(ing => {
+               const ingredientForList = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
+               const isOnGroceryList = isIngredientInGroceryList(ingredientForList);
+               return (
+                 <li key={ing.id} className="flex items-center justify-between">
+                    <div className="flex items-center">
+                        <button onClick={() => toggleIngredientCrossed(ing.id)} className={`w-6 h-6 rounded-md border-2 flex items-center justify-center mr-3 transition-colors ${crossedIngredients.has(ing.id) ? 'bg-gray-300 border-gray-300' : 'border-gray-300'}`}>
+                            {crossedIngredients.has(ing.id) && <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                        </button>
+                        <span className={`text-xl font-bold text-gray-700 ${crossedIngredients.has(ing.id) ? 'line-through text-gray-400' : ''}`}>
+                            {getAdjustedQuantity(ing.quantity)} {ing.unit} {ing.name} <span className="text-gray-400 font-normal">{getMetricDisplay({...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined})}</span>
+                        </span>
+                    </div>
+                    <button onClick={() => onToggleGroceryItem(ingredientForList)}>
+                        {isOnGroceryList
+                            ? <div className="w-7 h-7 rounded-full bg-[#BDEE63] text-gray-800 flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg></div>
+                            : <div className="w-7 h-7 rounded-full border border-gray-300 text-gray-400 flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg></div>
+                        }
+                    </button>
+                 </li>
+               )
+           })}
+        </ul>
+        {isEditing && <button onClick={handleAddIngredient} className="w-full text-center py-2 bg-lime-100 text-lime-800 rounded-lg font-semibold">+ Ajouter un ingrédient</button>}
+
+        {/* Preparation */}
+        <h2 className="text-3xl font-bold text-gray-800 my-6">Préparation</h2>
+        <ol className="space-y-6">
+           {isEditing ? editableRecipe.instructions.map((step, index) => (
+               <li key={index} draggable onDragStart={() => dragItem.current = index} onDragEnter={() => dragOverItem.current = index} onDragEnd={() => handleDragSort(editableRecipe.instructions, (list) => setEditableRecipe(p => ({ ...p, instructions: list })))} onDragOver={(e) => e.preventDefault()} className="flex items-start gap-2 bg-gray-100 p-2 rounded-lg">
+                   <span className="cursor-grab text-gray-400 pt-1">☰</span>
+                   <textarea value={step} onChange={(e) => handleInstructionChange(index, e.target.value)} className="w-full p-1 border rounded-md bg-white text-gray-800 placeholder-gray-400" rows={3}></textarea>
+                   <button onClick={() => handleRemoveInstruction(index)} className="text-red-500 p-1">✕</button>
+               </li>
+           )) : recipe.instructions.map((step, index) => (
+             <li key={index} className="flex items-start gap-4">
+                 <div className="flex items-center gap-3">
+                    <span className="font-bold text-xl text-lime-500 leading-tight">{index + 1}.</span>
+                    <button onClick={() => toggleStep(index)} className={`flex-shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors ${checkedSteps.has(index) ? 'bg-[#BDEE63] border-[#BDEE63]' : 'border-gray-300'}`}></button>
+                </div>
+                <p className={`text-xl text-gray-700 pt-px ${checkedSteps.has(index) ? 'line-through text-gray-400' : ''}`}>{step}</p>
+            </li>
+           ))}
+        </ol>
+        {isEditing && <button onClick={handleAddInstruction} className="w-full text-center py-2 bg-lime-100 text-lime-800 rounded-lg font-semibold mt-4">+ Ajouter une étape</button>}
+      </div>
     </div>
+    {!isEditing && <AddCategoryModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onAddCategory={handleAddCategory} currentCategories={recipe.categories} suggestedCategories={DEFAULT_CATEGORIES}/>}
+    {isEditing && <ChangeImageModal isOpen={isImageModalOpen} onClose={() => setIsImageModalOpen(false)} onImageSelected={handleImageChange} />}
+    </>
   );
 };
 

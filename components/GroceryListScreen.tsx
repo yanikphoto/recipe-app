@@ -1,111 +1,96 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { GroceryItem } from '../types';
-import { BackIcon, DragHandleIcon, CloseIcon, SpoonForkIcon } from '../constants';
+import React, { useState, useRef } from 'react';
+import { GroceryListItem } from '../types';
 
-interface GroceryListScreenProps {
-  items: GroceryItem[];
-  onAddItem: (text: string) => void;
+type GroceryListScreenProps = {
+  items: GroceryListItem[];
+  onAddItem: (name: string) => void;
   onDeleteItem: (id: string) => void;
-  onReorder: (items: GroceryItem[]) => void;
+  onReorderItems: (items: GroceryListItem[]) => void;
   onBack: () => void;
-}
+};
 
-const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorder, onBack }) => {
-  const [localItems, setLocalItems] = useState(items);
-  const [newItemText, setNewItemText] = useState('');
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onBack }) => {
+    const [newItem, setNewItem] = useState('');
+    const dragItem = useRef<number | null>(null);
+    const dragOverItem = useRef<number | null>(null);
 
-  useEffect(() => {
-    setLocalItems(items);
-  }, [items]);
+    const addItem = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (newItem.trim()) {
+            onAddItem(newItem.trim());
+            setNewItem('');
+        }
+    };
 
-  const handleAddItem = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newItemText.trim()) {
-      onAddItem(newItemText.trim());
-      setNewItemText('');
-      inputRef.current?.focus();
-    }
-  };
+    const handleDragSort = () => {
+        if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
+             dragItem.current = null;
+             dragOverItem.current = null;
+            return;
+        }
+        
+        let _items = [...items];
+        const draggedItemContent = _items.splice(dragItem.current, 1)[0];
+        _items.splice(dragOverItem.current, 0, draggedItemContent);
+        dragItem.current = null;
+        dragOverItem.current = null;
+        onReorderItems(_items);
+    };
 
-  const handleDragStart = (index: number) => setDraggedIndex(index);
-  
-  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
-  
-  const handleDrop = (dropIndex: number) => {
-    if (draggedIndex === null || draggedIndex === dropIndex) return;
-    
-    const newList = [...localItems];
-    const [draggedItem] = newList.splice(draggedIndex, 1);
-    newList.splice(dropIndex, 0, draggedItem);
-    
-    setLocalItems(newList); 
-    onReorder(newList); 
-    setDraggedIndex(null);
-  };
-  
-  const handleDragEnd = () => setDraggedIndex(null);
 
-  return (
-    <div className="p-6 pb-24 h-screen flex flex-col">
-      <header className="flex items-center">
-        <button onClick={onBack} className="p-2 -ml-2">
-          <BackIcon />
-        </button>
-        <h1 className="text-2xl font-semibold text-stone-800 ml-4">Liste d'épicerie</h1>
-      </header>
-      
-      <form onSubmit={handleAddItem} className="flex items-center gap-3 my-6">
-        <input
-          ref={inputRef}
-          autoFocus
-          type="text"
-          value={newItemText}
-          onChange={(e) => setNewItemText(e.target.value)}
-          placeholder="Ajouter un article..."
-          className="w-full bg-white px-4 py-3 border border-stone-300 rounded-full focus:ring-2 focus:ring-[#BDEE63] focus:border-[#BDEE63] transition shadow-sm"
-        />
-        <button type="submit" className="bg-[#BDEE63] text-stone-900 font-semibold p-3 rounded-full transition-transform active:scale-90 shadow-sm disabled:bg-stone-200 disabled:cursor-not-allowed" disabled={!newItemText.trim()}>
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-        </button>
-      </form>
-
-      <main className="flex-grow overflow-y-auto">
-        {localItems.length === 0 ? (
-          <div className="text-center py-20 flex flex-col items-center">
-            <SpoonForkIcon />
-            <p className="text-stone-500 mt-6">Votre liste d'épicerie est vide.</p>
-            <p className="text-stone-400 text-sm">Ajoutez un article ci-dessus pour commencer.</p>
-          </div>
-        ) : (
-          <ul className="space-y-3">
-            {localItems.map((item, index) => (
-              <li 
-                key={item.id} 
-                className={`flex items-center bg-white p-3 rounded-xl shadow-sm transition-opacity ${draggedIndex === index ? 'opacity-40' : 'opacity-100'}`}
-                draggable
-                onDragStart={() => handleDragStart(index)}
-                onDragOver={handleDragOver}
-                onDrop={() => handleDrop(index)}
-                onDragEnd={handleDragEnd}
-              >
-                <div className="flex-shrink-0 mr-3">
-                    <DragHandleIcon />
-                </div>
-                <span className="flex-1 text-stone-700">{item.text}</span>
-                <button onClick={() => onDeleteItem(item.id)} className="p-1 rounded-full hover:bg-stone-100 ml-3 flex-shrink-0" aria-label={`Supprimer ${item.text}`}>
-                    <CloseIcon />
+    return (
+        <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24">
+            <div className="flex items-center mb-6 relative h-10">
+                <button onClick={onBack} className="p-2 absolute left-0" aria-label="Retour">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </main>
-    </div>
-  );
+                <h1 className="text-3xl font-bold text-gray-800 text-center w-full">Liste d'épicerie</h1>
+            </div>
+
+            <form onSubmit={addItem} className="flex items-center gap-3 mb-6">
+                <input
+                    type="text"
+                    value={newItem}
+                    onChange={(e) => setNewItem(e.target.value)}
+                    placeholder="Ajouter un article..."
+                    className="w-full p-4 text-gray-700 bg-white border border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63] focus:border-transparent text-lg"
+                />
+                <button type="submit" aria-label="Ajouter l'article" className="flex-shrink-0 bg-gray-200 w-14 h-14 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors disabled:opacity-50" disabled={!newItem.trim()}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                </button>
+            </form>
+
+            {items.length > 0 ? (
+                <ul className="space-y-3">
+                    {items.map((item, index) => (
+                        <li 
+                            key={item.id} 
+                            draggable
+                            onDragStart={() => dragItem.current = index}
+                            onDragEnter={() => dragOverItem.current = index}
+                            onDragEnd={handleDragSort}
+                            onDragOver={(e) => e.preventDefault()}
+                            className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing group"
+                        >
+                            <div className="flex items-center">
+                                <span className="text-gray-400 mr-4" aria-label="Réorganiser l'article">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                                </span>
+                                <span className="text-gray-800 text-lg">{item.name}</span>
+                            </div>
+                            <button onClick={() => onDeleteItem(item.id)} className="text-gray-400 hover:text-red-500" aria-label={`Supprimer ${item.name}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <div className="text-center py-16 text-gray-500">
+                    <p>Votre liste est vide.</p>
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default GroceryListScreen;

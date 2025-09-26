@@ -1,92 +1,69 @@
+// FIX: Replace placeholder with a functional RecipeListScreen component.
 import React from 'react';
 import { Recipe } from '../types';
-import { DeleteRecipeIcon } from '../constants';
 
-interface RecipeListScreenProps {
+type RecipeListScreenProps = {
   recipes: Recipe[];
-  onViewRecipe: (recipe: Recipe) => void;
-  onNavigateToAdd: () => void;
-  onDeleteRecipe: (recipe: Recipe) => void;
-  activeCategory: string | null;
-  onClearFilter: () => void;
-  allCategories: string[];
-  onCategorySelect: (category: string) => void;
-}
+  onSelectRecipe: (recipe: Recipe) => void;
+  onDeleteRequest: (id: string) => void;
+};
 
-const RecipeListScreen: React.FC<RecipeListScreenProps> = ({ recipes, onViewRecipe, onNavigateToAdd, onDeleteRecipe, activeCategory, onClearFilter, allCategories, onCategorySelect }) => {
-  return (
-    <div className="p-6 pb-24">
-       <h1 className="text-3xl font-bold text-stone-800 mb-2">
-          {activeCategory ? `Catégorie : ${activeCategory}` : 'Recettes'}
-        </h1>
-      {activeCategory && (
-        <button 
-          onClick={onClearFilter}
-          className="text-sm text-stone-500 hover:text-stone-800 font-medium mb-6 flex items-center group"
-        >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 mr-1.5 group-hover:rotate-90 transition-transform">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            Effacer le filtre
-        </button>
-      )}
+// FIX: Define props as a separate type for RecipeCard to fix key prop error.
+type RecipeCardProps = {
+  recipe: Recipe;
+  onSelect: () => void;
+  onDelete: () => void;
+};
 
-      {!activeCategory && allCategories.length > 0 && (
-        <div className="my-6 bg-lime-100/60 p-4 rounded-2xl border border-lime-200/80">
-          <h2 className="text-sm font-semibold text-lime-900/80 mb-3 uppercase tracking-wider">Catégories</h2>
-          <div className="flex flex-wrap gap-2">
-            {allCategories.map(category => (
-              <button
-                key={category}
-                onClick={() => onCategorySelect(category)}
-                className="bg-white/80 text-stone-700 px-3 py-1.5 rounded-full text-sm font-medium hover:bg-white transition-colors shadow-sm border border-stone-200/50 active:scale-95"
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {recipes.length === 0 ? (
-        <div className="text-center py-20">
-            <p className="text-stone-500 mb-4">{activeCategory ? `Aucune recette trouvée dans la catégorie "${activeCategory}".` : "Vous n'avez pas encore de recettes."}</p>
+// FIX: Changed component definition to use React.FC to correctly type props and resolve key error.
+const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onSelect, onDelete }) => (
+    <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:scale-105 transition-transform duration-200" onClick={onSelect}>
+        <div className="relative">
+            <img src={recipe.imageUrl} alt={recipe.title} className="w-full h-40 object-cover" />
             <button
-                onClick={onNavigateToAdd}
-                className="bg-[#BDEE63] text-stone-900 font-semibold py-3 px-6 rounded-full transition-transform active:scale-95 shadow-sm"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                }}
+                className="absolute top-2 right-2 bg-white/90 rounded-full p-1.5 shadow-md hover:bg-white transition-colors"
+                aria-label="Supprimer la recette"
             >
-                {activeCategory ? 'Ajouter une nouvelle recette' : 'Ajouter votre première recette'}
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
             </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-6">
-          {recipes.map((recipe) => (
-            <div
-              key={recipe.id}
-              onClick={() => onViewRecipe(recipe)}
-              className="bg-white rounded-2xl overflow-hidden shadow-sm active:scale-[0.98] transition-transform duration-200 cursor-pointer relative"
-            >
-              <img src={recipe.imageUrl} alt={recipe.name} className="w-full h-40 object-cover" />
-              <div className="p-4">
-                <h2 className="font-semibold text-lg text-stone-800">{recipe.name}</h2>
-                <div className="flex flex-wrap gap-2 mt-2">
-                    {recipe.categories.map(cat => (
-                        <span key={cat} className="text-xs bg-stone-100 text-stone-600 px-2 py-1 rounded-full">{cat}</span>
-                    ))}
-                </div>
-              </div>
-               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteRecipe(recipe);
-                }}
-                className="absolute top-2 right-2 rounded-xl shadow-lg transition-transform active:scale-90 hover:scale-105"
-                aria-label={`Supprimer la recette ${recipe.name}`}
-              >
-                <DeleteRecipeIcon />
-              </button>
+        <div className="p-4">
+            <h3 className="font-bold text-lg text-gray-800 truncate">{recipe.title}</h3>
+            <div className="flex flex-wrap gap-1 mt-2">
+                {recipe.categories.slice(0, 2).map(cat => (
+                    <span key={cat} className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">{cat}</span>
+                ))}
             </div>
-          ))}
+        </div>
+    </div>
+);
+
+
+const RecipeListScreen: React.FC<RecipeListScreenProps> = ({ recipes, onSelectRecipe, onDeleteRequest }) => {
+  return (
+    <div className="p-4 bg-[#F9F9F5] min-h-screen">
+      <h1 className="text-3xl font-bold text-gray-800 mb-6 px-2 text-center">Mes recettes</h1>
+      {recipes.length > 0 ? (
+        <div className="grid grid-cols-2 gap-4">
+            {recipes.map(recipe => (
+                <RecipeCard 
+                    key={recipe.id} 
+                    recipe={recipe} 
+                    onSelect={() => onSelectRecipe(recipe)}
+                    onDelete={() => onDeleteRequest(recipe.id)}
+                />
+            ))}
+        </div>
+      ) : (
+        <div className="text-center py-20">
+            <p className="text-gray-500">Aucune recette trouvée.</p>
+            <p className="text-gray-500">Ajoutez-en une pour commencer !</p>
         </div>
       )}
     </div>

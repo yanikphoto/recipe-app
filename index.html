@@ -2,19 +2,41 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>Nos Recettes</title>
-    <meta name="theme-color" content="#BDEE63">
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icon.svg">
-    <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#F9F9F5" />
+    <!-- PWA / iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Recettes" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
-            font-family: 'Lexend', sans-serif;
+            font-family: 'Poppins', sans-serif;
+            background-color: #F9F9F5;
+            color: #2D3748;
+        }
+        /* Hide scrollbar for clean mobile look */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+        html {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        /* Hide number input arrows */
+        input[type='number']::-webkit-outer-spin-button,
+        input[type='number']::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type='number'] {
+            -moz-appearance: textfield;
         }
     </style>
 <script type="importmap">
@@ -29,7 +51,7 @@
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-<body class="bg-[#FBF9F4]">
+<body class="bg-[#F9F9F5]">
     <div id="root"></div>
 <script type="module" src="/index.tsx"></script>
 </body>

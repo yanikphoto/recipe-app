@@ -1,6 +1,6 @@
 {
-  "name": "Nos Recettes",
-  "description": "Une application mobile pour découvrir, enregistrer et créer de délicieuses recettes. Ajoutez une recette en prenant une photo et laissez l'IA générer les détails pour vous.",
+  "name": "No Recettes",
+  "description": "A new application ready to be built.",
   "requestFramePermissions": [
     "camera"
   ]

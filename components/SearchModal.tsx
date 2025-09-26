@@ -1,88 +1,117 @@
 import React, { useState, useMemo } from 'react';
 import { Recipe } from '../types';
-import { InputSearchIcon, CloseIcon } from '../constants';
 
-interface SearchModalProps {
+type SearchModalProps = {
   recipes: Recipe[];
+  onSelectRecipe: (recipe: Recipe) => void;
   onClose: () => void;
-  onViewRecipe: (recipe: Recipe) => void;
-  onCategoryFilter: (category: string) => void;
-  uniqueCategories: string[];
-}
+};
 
-const SearchModal: React.FC<SearchModalProps> = ({ recipes, onClose, onViewRecipe, onCategoryFilter, uniqueCategories }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onClose }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  const filteredRecipes = useMemo(() => {
-    if (!searchTerm.trim()) return [];
-    return recipes.filter(recipe => 
-      recipe.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [searchTerm, recipes]);
+    const usedCategories = useMemo(() => {
+        const allCategories = recipes.flatMap(r => r.categories);
+        return [...new Set(allCategories)].sort();
+    }, [recipes]);
 
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-center p-4 pt-20" onClick={onClose}>
-      <div 
-        className="bg-white rounded-2xl w-full max-w-md h-fit shadow-xl flex flex-col" 
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="p-4 border-b border-stone-200 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-stone-800">Chercher une recette</h2>
-            <button onClick={onClose} className="p-1 rounded-full hover:bg-stone-100">
-                <CloseIcon />
-            </button>
-        </div>
+    const filteredRecipes = useMemo(() => {
+        return recipes.filter(recipe => {
+            const lowerCaseSearchTerm = searchTerm.toLowerCase();
+            const matchesCategory = selectedCategory ? recipe.categories.includes(selectedCategory) : true;
+            const matchesSearchTerm = searchTerm 
+                ? recipe.title.toLowerCase().includes(lowerCaseSearchTerm) || recipe.categories.some(c => c.toLowerCase().includes(lowerCaseSearchTerm))
+                : true;
+            
+            return matchesCategory && matchesSearchTerm;
+        });
+    }, [recipes, searchTerm, selectedCategory]);
 
-        <div className="p-4 relative">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <InputSearchIcon />
-            </div>
-            <input
-              type="text"
-              placeholder="Nom de la recette..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-stone-100 border border-stone-200 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-[#BDEE63] focus:border-[#BDEE63] transition"
-              autoFocus
-            />
-          </div>
-          {filteredRecipes.length > 0 && (
-            <div className="absolute top-full left-4 right-4 mt-1 bg-white border border-stone-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
-              <ul>
-                {filteredRecipes.map(recipe => (
-                  <li key={recipe.id}>
-                    <button 
-                      onClick={() => onViewRecipe(recipe)}
-                      className="w-full text-left px-4 py-2 hover:bg-stone-100 transition-colors"
-                    >
-                      {recipe.name}
+    const showResults = !!searchTerm || !!selectedCategory;
+
+    const handleCategoryClick = (category: string) => {
+        setSearchTerm('');
+        setSelectedCategory(prev => (prev === category ? null : category));
+    };
+    
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setSearchTerm(e.target.value);
+        if (selectedCategory) {
+            setSelectedCategory(null);
+        }
+    }
+
+    return (
+        <div 
+            className="fixed inset-0 bg-gray-900/60 z-50 flex items-start justify-center pt-16 md:pt-24" 
+            onClick={onClose} 
+            role="dialog" 
+            aria-modal="true" 
+            aria-labelledby="search-modal-title"
+        >
+            <div 
+                className="bg-white rounded-3xl w-[92%] max-w-lg p-5 shadow-2xl" 
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="flex justify-between items-center mb-4">
+                    <h2 id="search-modal-title" className="text-2xl font-bold text-gray-800">Chercher une recette</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Fermer la recherche">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-        
-        <div className="p-4 pt-0">
-          <h3 className="text-sm font-medium text-stone-500 mb-3">CATÉGORIES</h3>
-          <div className="flex flex-wrap gap-2">
-            {uniqueCategories.map(category => (
-              <button 
-                key={category}
-                onClick={() => onCategoryFilter(category)}
-                className="bg-stone-100 text-stone-600 px-3 py-1.5 rounded-full text-sm font-medium hover:bg-stone-200 transition-colors"
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-        </div>
+                </div>
 
-      </div>
-    </div>
-  );
+                <div className="relative mb-5">
+                    <input
+                        type="search"
+                        placeholder="Nom de la recette..."
+                        value={searchTerm}
+                        onChange={handleSearchChange}
+                        className="w-full p-4 pl-12 text-lg text-gray-800 bg-white border-2 border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63] focus:border-[#BDEE63] transition-colors"
+                        autoFocus
+                    />
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </div>
+                
+                <h3 className="text-xs font-bold uppercase text-gray-500 mb-3 px-1">Catégories</h3>
+                <div className="flex flex-wrap gap-2 mb-5">
+                    {usedCategories.map(cat => (
+                        <button 
+                            key={cat} 
+                            onClick={() => handleCategoryClick(cat)}
+                            className={`px-3 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ${selectedCategory === cat ? 'bg-gray-800 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        >
+                            {cat}
+                        </button>
+                    ))}
+                </div>
+                
+                <div className="max-h-[50vh] overflow-y-auto -mr-2 pr-2">
+                    {showResults ? (
+                        filteredRecipes.length > 0 ? (
+                            <ul className="space-y-3">
+                                {filteredRecipes.map(recipe => (
+                                    <li key={recipe.id} onClick={() => onSelectRecipe(recipe)} className="flex items-center bg-white p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
+                                        <img src={recipe.imageUrl} alt={recipe.title} className="w-14 h-14 rounded-lg object-cover mr-4"/>
+                                        <div>
+                                            <h3 className="font-semibold text-gray-800">{recipe.title}</h3>
+                                            <p className="text-sm text-gray-500">{recipe.categories.join(', ')}</p>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="text-center text-gray-500 pt-8 pb-4">Aucune recette trouvée.</p>
+                        )
+                    ) : (
+                        <div className="text-center text-gray-400 pt-8 pb-4">
+                            <p>Entrez un nom de recette ou sélectionnez une catégorie.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 export default SearchModal;
