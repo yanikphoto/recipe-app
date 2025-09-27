@@ -6,10 +6,11 @@ type GroceryListScreenProps = {
   onAddItem: (name: string) => void;
   onDeleteItem: (id: string) => void;
   onReorderItems: (items: GroceryListItem[]) => void;
+  onToggleItem: (id: string) => void;
   onBack: () => void;
 };
 
-const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onBack }) => {
+const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onToggleItem, onBack }) => {
     const [newItem, setNewItem] = useState('');
     const dragItem = useRef<number | null>(null);
     const dragOverItem = useRef<number | null>(null);
@@ -63,22 +64,28 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
             {items.length > 0 ? (
                 <ul className="space-y-3">
                     {items.map((item, index) => (
-                        <li 
-                            key={item.id} 
+                        <li
+                            key={item.id}
                             draggable
                             onDragStart={() => dragItem.current = index}
                             onDragEnter={() => dragOverItem.current = index}
                             onDragEnd={handleDragSort}
                             onDragOver={(e) => e.preventDefault()}
-                            className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing group"
+                            className={`flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing group transition-opacity ${item.completed ? 'opacity-50' : ''}`}
                         >
-                            <div className="flex items-center">
+                            <div className="flex items-center flex-grow">
+                                <input
+                                    type="checkbox"
+                                    checked={item.completed}
+                                    onChange={() => onToggleItem(item.id)}
+                                    className="h-6 w-6 rounded-full border-gray-300 text-[#D4F78F] focus:ring-[#BDEE63] mr-4 flex-shrink-0"
+                                />
                                 <span className="text-gray-400 mr-4" aria-label="Réorganiser l'article">
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                                 </span>
-                                <span className="text-gray-800 text-lg">{item.name}</span>
+                                <span className={`text-gray-800 text-lg ${item.completed ? 'line-through' : ''}`}>{item.name}</span>
                             </div>
-                            <button onClick={() => onDeleteItem(item.id)} className="text-gray-400 hover:text-red-500" aria-label={`Supprimer ${item.name}`}>
+                            <button onClick={() => onDeleteItem(item.id)} className="text-gray-400 hover:text-red-500 ml-4" aria-label={`Supprimer ${item.name}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         </li>

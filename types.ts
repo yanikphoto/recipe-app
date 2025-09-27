@@ -21,6 +21,7 @@ export type GroceryListItem = {
     id: string;
     name: string;
     completed: boolean;
+    order: number;
 };
 
 export type Screen = 'welcome' | 'recipes' | 'add' | 'search' | 'list' | 'recipe-detail' | 'timer';

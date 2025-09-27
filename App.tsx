@@ -10,39 +10,17 @@ import BottomNav from './components/BottomNav';
 import SearchModal from './components/SearchModal';
 import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
-
-const MOCK_RECIPES: Recipe[] = [
-  {
-    id: '1',
-    title: 'Pancakes Classiques',
-    imageUrl: 'https://images.unsplash.com/photo-1528207776546-365bb710ee93?q=80&w=2070&auto=format&fit=crop',
-    categories: ['Déjeuner', 'Dessert'],
-    ingredients: [
-      { id: 'i11', name: 'Farine', quantity: 1.5, unit: 'tasses' },
-      { id: 'i12', name: 'Sucre', quantity: 2, unit: 'c.à.s' },
-      { id: 'i13', name: 'Levure chimique', quantity: 2, unit: 'c.à.c' },
-      { id: 'i14', name: 'Sel', quantity: 0.5, unit: 'c.à.c' },
-      { id: 'i15', name: 'Lait', quantity: 1.25, unit: 'tasses' },
-      { id: 'i16', name: 'Oeuf', quantity: 1 },
-      { id: 'i17', name: 'Beurre fondu', quantity: 2, unit: 'c.à.s' },
-    ],
-    instructions: [
-      'Mélanger les ingrédients secs.',
-      'Ajouter le lait, l\'oeuf et le beurre fondu.',
-      'Mélanger jusqu\'à obtenir une pâte homogène.',
-      'Faire cuire dans une poêle chaude.',
-    ],
-    servings: 4,
-  },
-];
+import Spinner from './components/Spinner';
+import * as firestoreService from './services/firestoreService';
 
 const App: React.FC = () => {
     const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
     const [isSearchOpen, setIsSearchOpen] = useState(false);
-    const [recipes, setRecipes] = useState<Recipe[]>(MOCK_RECIPES);
+    const [recipes, setRecipes] = useState<Recipe[]>([]);
     const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
     const [groceryList, setGroceryList] = useState<GroceryListItem[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     // Timer state
     const [timerEndTime, setTimerEndTime] = useState<number | null>(null);
@@ -55,6 +33,27 @@ const App: React.FC = () => {
     const audioContextRef = useRef<AudioContext | null>(null);
     const alarmGainNodeRef = useRef<GainNode | null>(null);
     const alarmIntervalRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setIsLoading(true);
+            try {
+                const [initialRecipes, initialGroceryList] = await Promise.all([
+                    firestoreService.getRecipes(),
+                    firestoreService.getGroceryList(),
+                ]);
+                setRecipes(initialRecipes);
+                setGroceryList(initialGroceryList);
+            } catch (error) {
+                console.error("Error fetching initial data:", error);
+                // Here you might want to set an error state and show a message to the user
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchData();
+    }, []);
     
     const allCategories = useMemo(() => {
         const categoriesFromRecipes = recipes.flatMap(r => r.categories);
@@ -205,59 +204,116 @@ const App: React.FC = () => {
         setIsSearchOpen(false);
     };
     
-    const addRecipe = (recipe: Recipe) => {
-        setRecipes(prev => [recipe, ...prev]);
-        setCurrentScreen('recipes');
-        setIsSearchOpen(false);
+    const addRecipe = async (recipe: Omit<Recipe, 'id'>) => {
+        try {
+            const newId = await firestoreService.addRecipe(recipe);
+            const newRecipe = { ...recipe, id: newId };
+            setRecipes(prev => [newRecipe, ...prev]);
+            setCurrentScreen('recipes');
+            setIsSearchOpen(false);
+        } catch (error) {
+            console.error("Error adding recipe:", error);
+        }
     }
 
-    const updateRecipe = (updatedRecipe: Recipe) => {
-        setRecipes(prev => prev.map(r => r.id === updatedRecipe.id ? updatedRecipe : r));
-        if (selectedRecipe?.id === updatedRecipe.id) {
-            setSelectedRecipe(updatedRecipe);
+    const updateRecipe = async (updatedRecipe: Recipe) => {
+        try {
+            await firestoreService.updateRecipe(updatedRecipe.id, updatedRecipe);
+            setRecipes(prev => prev.map(r => r.id === updatedRecipe.id ? updatedRecipe : r));
+            if (selectedRecipe?.id === updatedRecipe.id) {
+                setSelectedRecipe(updatedRecipe);
+            }
+        } catch (error) {
+            console.error("Error updating recipe:", error);
         }
     };
 
-    const deleteRecipe = (id: string) => {
-        setRecipes(prev => prev.filter(r => r.id !== id));
-        setRecipeToDelete(null);
-        if (selectedRecipe?.id === id) {
-            setCurrentScreen('recipes');
-            setSelectedRecipe(null);
+    const deleteRecipe = async (id: string) => {
+        try {
+            await firestoreService.deleteRecipe(id);
+            setRecipes(prev => prev.filter(r => r.id !== id));
+            setRecipeToDelete(null);
+            if (selectedRecipe?.id === id) {
+                setCurrentScreen('recipes');
+                setSelectedRecipe(null);
+            }
+        } catch (error) {
+            console.error("Error deleting recipe:", error);
         }
     };
     
-    const toggleGroceryItemFromIngredient = (ingredient: Ingredient) => {
+    const toggleGroceryItemFromIngredient = async (ingredient: Ingredient) => {
         const ingredientString = `${ingredient.quantity ? `${ingredient.quantity} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
         const existingItem = groceryList.find(item => item.name.toLowerCase() === ingredientString.toLowerCase());
 
         if (existingItem) {
-            setGroceryList(prev => prev.filter(item => item.id !== existingItem.id));
+            try {
+                await firestoreService.deleteGroceryListItem(existingItem.id);
+                setGroceryList(prev => prev.filter(item => item.id !== existingItem.id));
+            } catch (error) {
+                console.error("Error deleting grocery item:", error);
+            }
         } else {
-            const newItem: GroceryListItem = {
-                id: crypto.randomUUID(),
-                name: ingredientString,
-                completed: false,
-            };
-            setGroceryList(prev => [...prev, newItem]);
+            const newItemData = { name: ingredientString, completed: false, order: groceryList.length };
+            try {
+                const newId = await firestoreService.addGroceryListItem(newItemData);
+                const newItem = { ...newItemData, id: newId };
+                setGroceryList(prev => [...prev, newItem]);
+            } catch (error) {
+                console.error("Error adding grocery item:", error);
+            }
         }
     };
         
-    const addCustomGroceryItem = (name: string) => {
-        const newItem: GroceryListItem = { id: crypto.randomUUID(), name, completed: false };
-        setGroceryList(prev => [newItem, ...prev]);
+    const addCustomGroceryItem = async (name: string) => {
+        const newItemData = { name, completed: false, order: groceryList.length };
+        try {
+            const newId = await firestoreService.addGroceryListItem(newItemData);
+            const newItem = { ...newItemData, id: newId };
+            setGroceryList(prev => [...prev, newItem]);
+        } catch (error) {
+            console.error("Error adding custom grocery item:", error);
+        }
     };
 
-    const deleteGroceryItem = (id: string) => {
-        setGroceryList(prev => prev.filter(item => item.id !== id));
+    const deleteGroceryItem = async (id: string) => {
+        try {
+            await firestoreService.deleteGroceryListItem(id);
+            setGroceryList(prev => prev.filter(item => item.id !== id));
+        } catch (error) {
+            console.error("Error deleting grocery item:", error);
+        }
     };
 
-    const reorderGroceryItems = (reorderedList: GroceryListItem[]) => {
+    const reorderGroceryItems = async (reorderedList: GroceryListItem[]) => {
         setGroceryList(reorderedList);
+        try {
+            await firestoreService.reorderGroceryListItems(reorderedList);
+        } catch (error) {
+            console.error("Error reordering grocery items:", error);
+            // You might want to revert the state change on error
+        }
     };
+
+    const toggleGroceryItem = async (id: string) => {
+        const item = groceryList.find(i => i.id === id);
+        if (!item) return;
+
+        const updatedItem = { ...item, completed: !item.completed };
+        try {
+            await firestoreService.updateGroceryListItem(id, { completed: updatedItem.completed });
+            setGroceryList(prev => prev.map(i => i.id === id ? updatedItem : i));
+        } catch (error) {
+            console.error("Error toggling grocery item completion:", error);
+        }
+    }
 
 
     const renderScreen = () => {
+        if (isLoading) {
+            return <div className="flex justify-center items-center h-screen"><Spinner /></div>;
+        }
+
         switch (currentScreen) {
             case 'welcome':
                 return <WelcomeScreen setActiveScreen={setActiveScreen} />;
@@ -271,6 +327,7 @@ const App: React.FC = () => {
                     onAddItem={addCustomGroceryItem}
                     onDeleteItem={deleteGroceryItem}
                     onReorderItems={reorderGroceryItems}
+                    onToggleItem={toggleGroceryItem}
                     onBack={() => setActiveScreen('recipes')}
                 />;
             case 'timer':

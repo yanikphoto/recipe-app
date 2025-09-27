@@ -27,7 +27,7 @@ const OptionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: ()
 
 
 type AddRecipeScreenProps = {
-  onAddRecipe: (recipe: Recipe) => void;
+  onAddRecipe: (recipe: Omit<Recipe, 'id'>) => void;
   setActiveScreen: (screen: Screen) => void;
   allCategories: string[];
 };
@@ -60,8 +60,7 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
                 const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
                 const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
 
-                const newRecipe: Recipe = {
-                    id: crypto.randomUUID(),
+                const newRecipe: Omit<Recipe, 'id'> = {
                     imageUrl: imageUrl,
                     title: parsedData.title,
                     categories: parsedData.categories || [],
@@ -106,8 +105,7 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
             const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
             const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
 
-            const newRecipe: Recipe = {
-                id: crypto.randomUUID(),
+            const newRecipe: Omit<Recipe, 'id'> = {
                 imageUrl: imageUrl,
                 title: parsedData.title,
                 categories: parsedData.categories || [],
