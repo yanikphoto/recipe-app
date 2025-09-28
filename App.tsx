@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -10,6 +11,9 @@ import BottomNav from './components/BottomNav';
 import SearchModal from './components/SearchModal';
 import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
+
+const RECIPES_STORAGE_KEY = 'nosRecettes.recipes';
+const GROCERY_LIST_STORAGE_KEY = 'nosRecettes.groceryList';
 
 const MOCK_RECIPES: Recipe[] = [
   {
@@ -39,10 +43,29 @@ const MOCK_RECIPES: Recipe[] = [
 const App: React.FC = () => {
     const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
     const [isSearchOpen, setIsSearchOpen] = useState(false);
-    const [recipes, setRecipes] = useState<Recipe[]>(MOCK_RECIPES);
+    
+    const [recipes, setRecipes] = useState<Recipe[]>(() => {
+        try {
+            const storedRecipes = window.localStorage.getItem(RECIPES_STORAGE_KEY);
+            return storedRecipes ? JSON.parse(storedRecipes) : MOCK_RECIPES;
+        } catch (error) {
+            console.error("Failed to read recipes from localStorage", error);
+            return MOCK_RECIPES;
+        }
+    });
+    
     const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
-    const [groceryList, setGroceryList] = useState<GroceryListItem[]>([]);
+    
+    const [groceryList, setGroceryList] = useState<GroceryListItem[]>(() => {
+        try {
+            const storedList = window.localStorage.getItem(GROCERY_LIST_STORAGE_KEY);
+            return storedList ? JSON.parse(storedList) : [];
+        } catch (error) {
+            console.error("Failed to read grocery list from localStorage", error);
+            return [];
+        }
+    });
 
     // Timer state
     const [timerEndTime, setTimerEndTime] = useState<number | null>(null);
@@ -56,6 +79,22 @@ const App: React.FC = () => {
     const alarmGainNodeRef = useRef<GainNode | null>(null);
     const alarmIntervalRef = useRef<number | null>(null);
     
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(RECIPES_STORAGE_KEY, JSON.stringify(recipes));
+        } catch (error) {
+            console.error("Failed to save recipes to localStorage", error);
+        }
+    }, [recipes]);
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(GROCERY_LIST_STORAGE_KEY, JSON.stringify(groceryList));
+        } catch (error) {
+            console.error("Failed to save grocery list to localStorage", error);
+        }
+    }, [groceryList]);
+
     const allCategories = useMemo(() => {
         const categoriesFromRecipes = recipes.flatMap(r => r.categories);
         return [...new Set([...DEFAULT_CATEGORIES, ...categoriesFromRecipes])];
