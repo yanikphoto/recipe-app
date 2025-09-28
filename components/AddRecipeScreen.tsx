@@ -5,15 +5,61 @@ import { Screen, Recipe } from '../types';
 import { parseRecipeFromImage, parseRecipeFromUrl, generateImageFromPrompt } from '../services/geminiService';
 import Spinner from './Spinner';
 
-const fileToGenerativePart = async (file: File) => {
-  const base64EncodedDataPromise = new Promise<string>((resolve) => {
+const fileToGenerativePart = (file: File): Promise<{ inlineData: { data: string; mimeType: string; } }> => {
+  const MAX_DIMENSION = 1024; // Max width or height for the image
+  const TARGET_MIME_TYPE = 'image/jpeg';
+  const IMAGE_QUALITY = 0.8; // 80% quality for JPEG compression
+
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+    reader.onload = (event) => {
+      if (!event.target?.result) {
+        return reject(new Error("FileReader failed to read file."));
+      }
+      
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+
+        // Calculate the new dimensions
+        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIMENSION) / width);
+            width = MAX_DIMENSION;
+          } else {
+            width = Math.round((width * MAX_DIMENSION) / height);
+            height = MAX_DIMENSION;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return reject(new Error("Could not create canvas context."));
+        }
+        
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL(TARGET_MIME_TYPE, IMAGE_QUALITY);
+        const base64EncodedData = dataUrl.split(',')[1];
+        
+        if (!base64EncodedData) {
+            return reject(new Error("Could not extract base64 data from canvas."));
+        }
+
+        resolve({
+          inlineData: { data: base64EncodedData, mimeType: TARGET_MIME_TYPE },
+        });
+      };
+      
+      img.onerror = (error) => reject(new Error(`Image failed to load: ${error}`));
+      img.src = event.target.result as string;
+    };
+    reader.onerror = (error) => reject(new Error(`FileReader error: ${error}`));
     reader.readAsDataURL(file);
   });
-  return {
-    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
-  };
 };
 
 const OptionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void }> = ({ icon, label, onClick }) => (
