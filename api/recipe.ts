@@ -50,14 +50,12 @@ const recipeSchemaWithImagePrompt = {
 async function parseRecipeFromImageInternal(imagePart: { inlineData: { data: string; mimeType: string; } }, allCategories: string[]) {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: [
-            {
-                parts: [
-                    imagePart,
-                    { text: `Extrais les détails de la recette de cette image. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions, les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si une valeur n'est pas présente, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.` }
-                ]
-            }
-        ],
+        contents: {
+            parts: [
+                imagePart,
+                { text: `Extrais les détails de la recette de cette image. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions, les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si une valeur n'est pas présente, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.` }
+            ]
+        },
         config: {
             responseMimeType: "application/json",
             responseSchema: recipeSchemaWithImagePrompt,
@@ -74,7 +72,7 @@ async function parseRecipeFromImageInternal(imagePart: { inlineData: { data: str
 async function parseRecipeFromUrlInternal(url: string, allCategories: string[]) {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: [{ parts: [{ text: `Extrais les détails de la recette de l'URL suivante : ${url}. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions, les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si une valeur n'est pas présente, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.` }] }],
+        contents: `Extrais les détails de la recette de l'URL suivante : ${url}. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions, les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si une valeur n'est pas présente, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.`,
         config: {
             responseMimeType: "application/json",
             responseSchema: recipeSchemaWithImagePrompt,
