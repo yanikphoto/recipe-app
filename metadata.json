@@ -1,7 +1,0 @@
-{
-  "name": "No Recettes",
-  "description": "A new application ready to be built.",
-  "requestFramePermissions": [
-    "camera"
-  ]
-}
