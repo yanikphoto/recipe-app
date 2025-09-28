@@ -22,7 +22,7 @@ const recipeSchema = {
                     quantity: { type: Type.NUMBER, description: "Quantity of the ingredient." },
                     unit: { type: Type.STRING, description: "Unit for the quantity (e.g., g, ml, cup, tbsp)." },
                 },
-                required: ['name', 'quantity', 'unit'],
+                required: ['name'],
             },
             description: "List of ingredients for the recipe."
         },
@@ -107,6 +107,11 @@ async function generateImageFromPromptInternal(prompt: string) {
 
 
 export default async function handler(req: any, res: any) {
+    if (!process.env.API_KEY) {
+        console.error("API_KEY environment variable is not set.");
+        return res.status(500).json({ error: "Configuration du serveur incomplète. La clé API est manquante." });
+    }
+
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
@@ -132,6 +137,7 @@ export default async function handler(req: any, res: any) {
         }
     } catch (error: any) {
         console.error(`Error in action '${action}':`, error);
-        return res.status(500).json({ error: `An internal server error occurred. Please check the function logs.` });
+        const errorMessage = error.message || 'Une erreur inattendue est survenue.';
+        return res.status(500).json({ error: `Erreur interne du serveur : ${errorMessage}` });
     }
 }

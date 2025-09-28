@@ -10,8 +10,8 @@ async function apiCall(action: string, payload: any) {
     });
 
     if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: "An unknown error occurred" }));
-        throw new Error(errorData.error || `API call for action '${action}' failed with status ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: "Une erreur inconnue est survenue" }));
+        throw new Error(errorData.error || `L'appel API pour l'action '${action}' a échoué avec le statut ${response.status}`);
     }
 
     return response.json();
@@ -22,7 +22,8 @@ export async function parseRecipeFromImage(imagePart: { inlineData: { data: stri
         return await apiCall('parseFromImage', { imagePart, allCategories });
     } catch (error) {
         console.error("Error parsing recipe from image:", error);
-        throw new Error("Failed to parse recipe from image. Please try again or enter the details manually.");
+        if (error instanceof Error) throw error;
+        throw new Error("Échec de l'analyse de la recette à partir de l'image. Veuillez réessayer ou entrer les détails manuellement.");
     }
 }
 
@@ -31,7 +32,8 @@ export async function parseRecipeFromUrl(url: string, allCategories: string[]): 
         return await apiCall('parseFromUrl', { url, allCategories });
     } catch (error) {
         console.error("Error parsing recipe from URL:", error);
-        throw new Error("Failed to parse recipe from URL. Please check the URL or try again.");
+        if (error instanceof Error) throw error;
+        throw new Error("Échec de l'analyse de la recette à partir de l'URL. Veuillez vérifier l'URL ou réessayer.");
     }
 }
 
@@ -41,10 +43,11 @@ export async function generateImageFromPrompt(prompt: string): Promise<string> {
         if (result.imageBase64) {
             return result.imageBase64;
         } else {
-             throw new Error("Image generation failed to return an image.");
+             throw new Error("La génération d'image n'a pas retourné d'image.");
         }
     } catch (error) {
         console.error("Error generating image:", error);
-        throw new Error("Failed to generate an image for the recipe.");
+        if (error instanceof Error) throw error;
+        throw new Error("Échec de la génération d'une image pour la recette.");
     }
 }
