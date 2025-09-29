@@ -14,7 +14,7 @@
       "type": "image/svg+xml"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "theme_color": "#F9F9F5",
   "background_color": "#F9F9F5"

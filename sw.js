@@ -1,6 +1,6 @@
 // sw.js
 
-const CACHE_NAME = 'nos-recettes-cache-v1';
+const CACHE_NAME = 'nos-recettes-cache-v2';
 const URLS_TO_CACHE = [
   '/',
   '/index.html',
@@ -48,12 +48,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For navigation requests, serve the app shell from the cache.
-  // This is a "Cache First" strategy for the app shell, making it load fast and work offline.
+  // For navigation requests, serve the app shell.
+  // This is a "cache, falling back to network" strategy for the app's main page.
+  // It's crucial for single-page apps that use client-side routing.
   if (event.request.mode === 'navigate') {
     event.respondWith(
       caches.match('/index.html').then((response) => {
-        return response || fetch(event.request); // Fallback to network if not in cache
+        return response || fetch('/index.html');
       })
     );
     return;
@@ -68,7 +69,6 @@ self.addEventListener('fetch', (event) => {
       
       return fetch(event.request).then((networkResponse) => {
         // We only cache successful responses (status 200).
-        // This will cache same-origin and cross-origin (CORS-enabled) assets.
         if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
