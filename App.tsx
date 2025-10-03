@@ -19,6 +19,26 @@ type SyncData = {
     groceryList: GroceryListItem[];
 };
 
+// Helper to convert URL-safe base64 to Uint8Array
+const urlSafeBase64ToUint8Array = (base64String: string): Uint8Array => {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+};
+
+// Helper function to decompress a Gzipped Uint8Array to a string
+const decompressUint8Array = async (input: Uint8Array): Promise<string> => {
+    const stream = new Blob([input]).stream();
+    const decompressedStream = stream.pipeThrough(new DecompressionStream('gzip'));
+    const blob = await new Response(decompressedStream).blob();
+    return blob.text();
+};
+
 const MOCK_RECIPES: Recipe[] = [
   {
     id: '1',
@@ -102,28 +122,32 @@ const App: React.FC = () => {
     
     // Check for sync data in URL on initial load
     useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const syncDataRaw = urlParams.get('sync');
+        const processUrlData = async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const syncDataRaw = urlParams.get('sync');
 
-        if (syncDataRaw) {
-            try {
-                // Decode from URL-safe base64
-                const base64 = syncDataRaw.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonString = atob(base64);
-                const parsedData = JSON.parse(jsonString);
-                
-                // Basic validation
-                if (parsedData && Array.isArray(parsedData.recipes) && Array.isArray(parsedData.groceryList)) {
-                    setDataToImport(parsedData);
+            if (syncDataRaw) {
+                try {
+                    // Decompress data from URL
+                    const compressedData = urlSafeBase64ToUint8Array(syncDataRaw);
+                    const jsonString = await decompressUint8Array(compressedData);
+                    const parsedData = JSON.parse(jsonString);
+                    
+                    // Basic validation
+                    if (parsedData && Array.isArray(parsedData.recipes) && Array.isArray(parsedData.groceryList)) {
+                        setDataToImport(parsedData);
+                    }
+                } catch (e) {
+                    console.error("Failed to parse sync data", e);
+                    alert("Les données de synchronisation sont invalides ou corrompues.");
+                } finally {
+                    // Clean the URL to prevent re-importing on refresh
+                    window.history.replaceState({}, document.title, window.location.pathname);
                 }
-            } catch (e) {
-                console.error("Failed to parse sync data", e);
-                alert("Les données de synchronisation sont invalides ou corrompues.");
-            } finally {
-                // Clean the URL to prevent re-importing on refresh
-                window.history.replaceState({}, document.title, window.location.pathname);
             }
-        }
+        };
+        
+        processUrlData();
     }, []);
 
     const allCategories = useMemo(() => {
