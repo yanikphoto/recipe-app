@@ -30,37 +30,38 @@ const uint8ArrayToUrlSafeBase64 = (uint8Array: Uint8Array): string => {
 
 const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack }) => {
     const [isLoading, setIsLoading] = useState(false);
-    const [showCopyConfirmation, setShowCopyConfirmation] = useState(false);
+    const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
 
-    const handleShare = async () => {
+    const handleGenerateQRCode = async () => {
         setIsLoading(true);
+        setQrCodeUrl(null);
         await new Promise(resolve => setTimeout(resolve, 50));
 
         try {
             const dataToSync = { recipes, groceryList };
             const jsonString = JSON.stringify(dataToSync);
             
-            // Compress the data
             const compressedData = await compressString(jsonString);
             const urlSafeBase64 = uint8ArrayToUrlSafeBase64(compressedData);
 
-            const url = `${window.location.origin}${window.location.pathname}?sync=${urlSafeBase64}`;
+            const syncUrl = `${window.location.origin}${window.location.pathname}?sync=${urlSafeBase64}`;
             
-            if (navigator.share) {
-                await navigator.share({
-                    title: 'Données Nos Recettes',
-                    text: 'Voici les données de nos recettes. Ouvre ce lien sur ton appareil pour synchroniser.',
-                    url: url
-                });
-            } else {
-                await navigator.clipboard.writeText(url);
-                setShowCopyConfirmation(true);
-                setTimeout(() => setShowCopyConfirmation(false), 2000);
+            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(syncUrl)}`;
+            
+            // Preload image to avoid showing a broken image while it loads
+            const img = new Image();
+            img.src = qrApiUrl;
+            img.onload = () => {
+                setQrCodeUrl(qrApiUrl);
+                setIsLoading(false);
+            };
+            img.onerror = () => {
+                throw new Error("Failed to load QR code image.");
             }
+
         } catch (error) {
-            console.error('Sharing failed', error);
-            alert("Échec du partage. Le lien est peut-être trop long. Essayez de supprimer quelques recettes et réessayez.");
-        } finally {
+            console.error('QR Code generation failed', error);
+            alert("Échec de la génération du code QR. Les données sont peut-être trop volumineuses ou vous êtes hors ligne.");
             setIsLoading(false);
         }
     };
@@ -79,23 +80,43 @@ const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack })
             <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto text-[#BDEE63]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
             </svg>
-            <h2 className="text-2xl font-bold text-gray-800 mt-4">Partager vos données</h2>
-            <p className="text-gray-600 mt-2">
-                Partagez toutes vos recettes et votre liste d'épicerie avec un autre appareil. Un lien unique sera généré.
-            </p>
+            <h2 className="text-2xl font-bold text-gray-800 mt-4">Transférer vos données</h2>
             <p className="text-sm text-red-500 bg-red-50 p-3 rounded-lg mt-4">
                 <strong>Attention :</strong> L'ouverture de ce lien sur un autre appareil <strong>remplacera</strong> toutes les données qui s'y trouvent.
             </p>
         </div>
 
-        <button
-            onClick={handleShare}
-            disabled={isLoading}
-            className="w-full mt-8 bg-[#D4F78F] text-gray-800 font-bold py-5 px-6 rounded-2xl shadow-sm hover:bg-[#BDEE63] transition-all duration-200 transform hover:scale-105 text-lg disabled:opacity-50 flex items-center justify-center"
-        >
-            {isLoading ? <Spinner /> : 'Générer et partager le lien'}
-        </button>
-        {showCopyConfirmation && <p className="text-green-600 mt-2">Lien copié dans le presse-papiers !</p>}
+        {isLoading && (
+            <div className="mt-8 flex justify-center">
+                <Spinner />
+            </div>
+        )}
+
+        {!isLoading && !qrCodeUrl && (
+            <button
+                onClick={handleGenerateQRCode}
+                className="w-full mt-8 bg-[#D4F78F] text-gray-800 font-bold py-5 px-6 rounded-2xl shadow-sm hover:bg-[#BDEE63] transition-all duration-200 transform hover:scale-105 text-lg"
+            >
+                Générer un code QR
+            </button>
+        )}
+        
+        {!isLoading && qrCodeUrl && (
+            <div className="mt-8 bg-white p-6 rounded-3xl shadow-sm flex flex-col items-center">
+                <h3 className="text-xl font-bold text-gray-800 mb-4">Scannez pour synchroniser</h3>
+                <img src={qrCodeUrl} alt="QR Code de synchronisation" className="w-64 h-64 rounded-lg bg-gray-100" />
+                <p className="text-gray-600 mt-4">
+                    Ouvrez l'appareil photo sur votre autre appareil et pointez-le sur ce code pour importer vos données.
+                </p>
+                <button
+                    onClick={() => setQrCodeUrl(null)}
+                    className="w-full mt-6 bg-gray-200 text-gray-800 font-bold py-4 px-6 rounded-2xl hover:bg-gray-300 transition-colors text-lg"
+                >
+                    Terminé
+                </button>
+            </div>
+        )}
+
       </div>
     </div>
   );
