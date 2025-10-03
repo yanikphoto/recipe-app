@@ -32,20 +32,20 @@ const TimeInput: React.FC<{
     };
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
             <input 
                 type="number"
                 aria-label={ariaLabel}
                 value={value} 
                 onChange={(e) => onValueChange(e.target.value)} 
-                className="w-16 bg-transparent text-center focus:outline-none appearance-none" 
+                className="w-12 sm:w-16 bg-transparent text-center focus:outline-none appearance-none font-mono" 
             />
             <div className="bg-white rounded-lg shadow-sm flex flex-col overflow-hidden">
                 <button onClick={increment} className="text-gray-700 hover:text-gray-700 bg-white hover:bg-white p-1" aria-label={`Augmenter ${ariaLabel}`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
                 </button>
                 <button onClick={decrement} className="text-gray-700 hover:text-gray-700 bg-white hover:bg-white p-1 border-t border-gray-200" aria-label={`Diminuer ${ariaLabel}`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>
                 </button>
             </div>
         </div>
@@ -83,22 +83,22 @@ const TimerScreen: React.FC<TimerScreenProps> = ({ onBack, timeLeft, isPaused, i
     const totalInitialSeconds = initialTime.hours * 3600 + initialTime.minutes * 60 + initialTime.seconds;
 
     return (
-        <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24">
-            <div className="flex items-center mb-6 relative h-10">
+        <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24 flex flex-col">
+            <div className="flex items-center mb-6 relative h-10 flex-shrink-0">
                 <button onClick={onBack} className="p-2 absolute left-0" aria-label="Retour">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
                 <h1 className="text-3xl font-bold text-gray-800 text-center w-full">Minuteur</h1>
             </div>
             
-            <div className="flex flex-col items-center justify-center pt-8">
-                <div className="bg-[#f4f3f6] rounded-3xl shadow-lg p-8 w-full max-w-sm mx-auto">
+            <div className="flex flex-col items-center justify-center flex-grow">
+                <div className="bg-[#f4f3f6] rounded-3xl shadow-lg p-6 sm:p-8 w-full max-w-sm mx-auto">
                     {isActive ? (
-                        <div className="text-6xl font-mono font-bold text-gray-800 text-center">
+                        <div className="text-5xl sm:text-6xl font-mono font-bold text-gray-800 text-center tracking-wider">
                             {formatTime(timeLeft)}
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center space-x-2 text-5xl font-mono font-bold text-gray-800">
+                        <div className="flex items-center justify-center space-x-1 sm:space-x-2 text-4xl sm:text-5xl font-mono font-bold text-gray-800">
                            <TimeInput 
                                 value={initialTime.hours} 
                                 onValueChange={(v) => handleTimeChange('hours', v)}
@@ -123,7 +123,7 @@ const TimerScreen: React.FC<TimerScreenProps> = ({ onBack, timeLeft, isPaused, i
                     )}
                 </div>
                 
-                <div className="w-full max-w-sm mx-auto mt-16 space-y-4">
+                <div className="w-full max-w-sm mx-auto mt-12 space-y-4">
                     {!isActive ? (
                          <button onClick={handleStart} disabled={totalInitialSeconds === 0} className="w-full bg-[#D4F78F] text-gray-800 font-bold text-xl py-4 rounded-2xl shadow-md hover:bg-[#BDEE63] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                             Démarrer
