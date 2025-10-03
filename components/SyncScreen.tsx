@@ -8,21 +8,42 @@ type SyncScreenProps = {
   onBack: () => void;
 };
 
+// Helper to compress a string using Gzip
+const compressString = async (input: string): Promise<Uint8Array> => {
+    const stream = new Blob([input], { type: 'text/plain' }).stream();
+    const compressedStream = stream.pipeThrough(new CompressionStream('gzip'));
+    const blob = await new Response(compressedStream).blob();
+    return new Uint8Array(await blob.arrayBuffer());
+};
+
+// Helper to convert Uint8Array to URL-safe base64
+const uint8ArrayToUrlSafeBase64 = (uint8Array: Uint8Array): string => {
+    let binary = '';
+    const len = uint8Array.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(uint8Array[i]);
+    }
+    const base64 = btoa(binary);
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+};
+
+
 const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [showCopyConfirmation, setShowCopyConfirmation] = useState(false);
 
     const handleShare = async () => {
         setIsLoading(true);
-        
-        // Use a short timeout to allow the UI to update to the loading state
         await new Promise(resolve => setTimeout(resolve, 50));
 
         try {
             const dataToSync = { recipes, groceryList };
             const jsonString = JSON.stringify(dataToSync);
-            const base64 = btoa(unescape(encodeURIComponent(jsonString))); // Handle UTF-8 characters
-            const urlSafeBase64 = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+            
+            // Compress the data
+            const compressedData = await compressString(jsonString);
+            const urlSafeBase64 = uint8ArrayToUrlSafeBase64(compressedData);
+
             const url = `${window.location.origin}${window.location.pathname}?sync=${urlSafeBase64}`;
             
             if (navigator.share) {
