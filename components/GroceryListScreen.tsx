@@ -13,12 +13,14 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
     const [newItem, setNewItem] = useState('');
     const dragItem = useRef<number | null>(null);
     const dragOverItem = useRef<number | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     const addItem = (e: React.FormEvent) => {
         e.preventDefault();
         if (newItem.trim()) {
             onAddItem(newItem.trim());
             setNewItem('');
+            inputRef.current?.focus(); // Keep focus after adding
         }
     };
 
@@ -49,11 +51,13 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
 
             <form onSubmit={addItem} className="flex items-center gap-3 mb-6">
                 <input
+                    ref={inputRef}
                     type="text"
                     value={newItem}
                     onChange={(e) => setNewItem(e.target.value)}
                     placeholder="Ajouter un article..."
                     className="w-full p-4 text-gray-700 bg-white border border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63] focus:border-transparent text-lg"
+                    autoFocus
                 />
                 <button type="submit" aria-label="Ajouter l'article" className="flex-shrink-0 bg-gray-200 w-14 h-14 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors disabled:opacity-50" disabled={!newItem.trim()}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
