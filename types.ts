@@ -23,4 +23,4 @@ export type GroceryListItem = {
     completed: boolean;
 };
 
-export type Screen = 'welcome' | 'recipes' | 'add' | 'search' | 'list' | 'recipe-detail' | 'timer';
+export type Screen = 'welcome' | 'recipes' | 'add' | 'search' | 'list' | 'recipe-detail' | 'timer' | 'sync';

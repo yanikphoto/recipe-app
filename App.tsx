@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -11,9 +9,15 @@ import BottomNav from './components/BottomNav';
 import SearchModal from './components/SearchModal';
 import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
+import SyncScreen from './components/SyncScreen';
 
 const RECIPES_STORAGE_KEY = 'nosRecettes.recipes';
 const GROCERY_LIST_STORAGE_KEY = 'nosRecettes.groceryList';
+
+type SyncData = {
+    recipes: Recipe[];
+    groceryList: GroceryListItem[];
+};
 
 const MOCK_RECIPES: Recipe[] = [
   {
@@ -56,6 +60,7 @@ const App: React.FC = () => {
     
     const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
+    const [dataToImport, setDataToImport] = useState<SyncData | null>(null);
     
     const [groceryList, setGroceryList] = useState<GroceryListItem[]>(() => {
         try {
@@ -94,6 +99,32 @@ const App: React.FC = () => {
             console.error("Failed to save grocery list to localStorage", error);
         }
     }, [groceryList]);
+    
+    // Check for sync data in URL on initial load
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const syncDataRaw = urlParams.get('sync');
+
+        if (syncDataRaw) {
+            try {
+                // Decode from URL-safe base64
+                const base64 = syncDataRaw.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonString = atob(base64);
+                const parsedData = JSON.parse(jsonString);
+                
+                // Basic validation
+                if (parsedData && Array.isArray(parsedData.recipes) && Array.isArray(parsedData.groceryList)) {
+                    setDataToImport(parsedData);
+                }
+            } catch (e) {
+                console.error("Failed to parse sync data", e);
+                alert("Les données de synchronisation sont invalides ou corrompues.");
+            } finally {
+                // Clean the URL to prevent re-importing on refresh
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+    }, []);
 
     const allCategories = useMemo(() => {
         const categoriesFromRecipes = recipes.flatMap(r => r.categories);
@@ -294,6 +325,19 @@ const App: React.FC = () => {
     const reorderGroceryItems = (reorderedList: GroceryListItem[]) => {
         setGroceryList(reorderedList);
     };
+    
+    const handleConfirmImport = () => {
+        if (dataToImport) {
+            setRecipes(dataToImport.recipes);
+            setGroceryList(dataToImport.groceryList);
+            setDataToImport(null);
+            setCurrentScreen('recipes'); // Navigate to recipes to see the new data
+        }
+    };
+
+    const handleCancelImport = () => {
+        setDataToImport(null);
+    };
 
 
     const renderScreen = () => {
@@ -325,6 +369,8 @@ const App: React.FC = () => {
                         resetTimer();
                     }}
                 />;
+            case 'sync':
+                return <SyncScreen recipes={recipes} groceryList={groceryList} onBack={() => setActiveScreen('recipes')} />;
             case 'recipe-detail':
                 return selectedRecipe ? 
                     <RecipeDetailScreen 
@@ -366,6 +412,29 @@ const App: React.FC = () => {
                     onSelectRecipe={viewRecipe}
                     onClose={closeSearchModal}
                 />
+            )}
+            
+            {dataToImport && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 transition-opacity duration-300">
+                    <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full text-center shadow-lg transform transition-all duration-300 scale-100">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4">Importer des données ?</h2>
+                        <p className="text-gray-600 mb-6">Cela remplacera toutes les recettes et les articles d'épicerie actuels sur cet appareil. Continuer ?</p>
+                        <div className="flex justify-center gap-4">
+                            <button
+                                onClick={handleCancelImport}
+                                className="px-6 py-3 rounded-xl bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300 transition-colors w-full"
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={handleConfirmImport}
+                                className="px-6 py-3 rounded-xl bg-[#D4F78F] text-gray-800 font-semibold hover:bg-[#BDEE63] transition-colors w-full"
+                            >
+                                Importer
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {recipeToDelete && (
