@@ -10,6 +10,7 @@ import SearchModal from './components/SearchModal';
 import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
 import SyncScreen from './components/SyncScreen';
+import Spinner from './components/Spinner';
 
 const RECIPES_STORAGE_KEY = 'nosRecettes.recipes';
 const GROCERY_LIST_STORAGE_KEY = 'nosRecettes.groceryList';
@@ -17,18 +18,6 @@ const GROCERY_LIST_STORAGE_KEY = 'nosRecettes.groceryList';
 type SyncData = {
     recipes: Recipe[];
     groceryList: GroceryListItem[];
-};
-
-// Helper to convert URL-safe base64 to Uint8Array
-const urlSafeBase64ToUint8Array = (base64String: string): Uint8Array => {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
 };
 
 // Helper function to decompress a Gzipped Uint8Array to a string
@@ -81,6 +70,7 @@ const App: React.FC = () => {
     const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
     const [dataToImport, setDataToImport] = useState<SyncData | null>(null);
+    const [isSyncing, setIsSyncing] = useState(false);
     
     const [groceryList, setGroceryList] = useState<GroceryListItem[]>(() => {
         try {
@@ -124,24 +114,32 @@ const App: React.FC = () => {
     useEffect(() => {
         const processUrlData = async () => {
             const urlParams = new URLSearchParams(window.location.search);
-            const syncDataRaw = urlParams.get('sync');
+            const syncId = urlParams.get('syncId');
 
-            if (syncDataRaw) {
+            if (syncId) {
+                setIsSyncing(true);
                 try {
-                    // Decompress data from URL
-                    const compressedData = urlSafeBase64ToUint8Array(syncDataRaw);
+                    const response = await fetch(`/api/sync?id=${syncId}`);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error || `Échec de la récupération des données de synchronisation: ${response.statusText}`);
+                    }
+                    
+                    const compressedDataBlob = await response.blob();
+                    const compressedData = new Uint8Array(await compressedDataBlob.arrayBuffer());
                     const jsonString = await decompressUint8Array(compressedData);
                     const parsedData = JSON.parse(jsonString);
                     
-                    // Basic validation
                     if (parsedData && Array.isArray(parsedData.recipes) && Array.isArray(parsedData.groceryList)) {
                         setDataToImport(parsedData);
+                    } else {
+                        throw new Error("Les données de synchronisation sont invalides.");
                     }
-                } catch (e) {
-                    console.error("Failed to parse sync data", e);
-                    alert("Les données de synchronisation sont invalides ou corrompues.");
+                } catch (e: any) {
+                    console.error("Failed to process sync data", e);
+                    alert(e.message || "Les données de synchronisation sont invalides, corrompues ou ont expiré.");
                 } finally {
-                    // Clean the URL to prevent re-importing on refresh
+                    setIsSyncing(false);
                     window.history.replaceState({}, document.title, window.location.pathname);
                 }
             }
@@ -416,6 +414,13 @@ const App: React.FC = () => {
             <main>{renderScreen()}</main>
             <BottomNav activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
             
+            {isSyncing && (
+                <div className="fixed inset-0 bg-black/50 flex flex-col items-center justify-center z-[100]">
+                    <Spinner />
+                    <p className="text-white mt-2">Récupération des données...</p>
+                </div>
+            )}
+
             {isAlarmModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
                     <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full text-center shadow-lg">
