@@ -16,15 +16,14 @@ const compressString = async (input: string): Promise<Uint8Array> => {
     return new Uint8Array(await blob.arrayBuffer());
 };
 
-// Helper to convert Uint8Array to URL-safe base64
-const uint8ArrayToUrlSafeBase64 = (uint8Array: Uint8Array): string => {
+// Helper to convert Uint8Array to standard base64 for JSON transport
+const uint8ArrayToBase64 = (uint8Array: Uint8Array): string => {
     let binary = '';
     const len = uint8Array.byteLength;
     for (let i = 0; i < len; i++) {
         binary += String.fromCharCode(uint8Array[i]);
     }
-    const base64 = btoa(binary);
-    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    return btoa(binary);
 };
 
 // Helper to downscale a data URL image to reduce its size for syncing
@@ -73,7 +72,7 @@ const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack })
         setIsLoading(true);
         setLoadingMessage('Préparation des données...');
         setQrCodeUrl(null);
-        await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI to update
+        await new Promise(resolve => setTimeout(resolve, 50));
 
         try {
             const recipesForSync = await Promise.all(recipes.map(async (recipe) => {
@@ -83,7 +82,7 @@ const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack })
                         return { ...recipe, imageUrl: downscaledImageUrl };
                     } catch (e) {
                         console.error(`Impossible de réduire l'image pour la recette ${recipe.title}, l'image sera ignorée.`, e);
-                        return { ...recipe, imageUrl: '' }; // Fallback
+                        return { ...recipe, imageUrl: '' };
                     }
                 }
                 return recipe;
@@ -92,20 +91,32 @@ const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack })
             const dataToSync = { recipes: recipesForSync, groceryList };
             const jsonString = JSON.stringify(dataToSync);
             
+            setLoadingMessage('Compression des données...');
             const compressedData = await compressString(jsonString);
-            const urlSafeBase64 = uint8ArrayToUrlSafeBase64(compressedData);
+            const base64Data = uint8ArrayToBase64(compressedData);
 
-            const syncUrl = `${window.location.origin}${window.location.pathname}?sync=${urlSafeBase64}`;
+            setLoadingMessage('Création du lien de synchronisation...');
+            const response = await fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: base64Data })
+            });
             
-            if (syncUrl.length > 4000) { // A conservative limit for QR codes
-                 throw new Error("Les données de la recette sont trop volumineuses pour être synchronisées via un code QR, même après compression. Essayez de synchroniser moins de recettes à la fois.");
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `La création du lien de synchronisation a échoué (${response.status})`);
             }
 
-            setLoadingMessage('Génération du code QR...');
+            const { id } = await response.json();
+            if (!id) {
+                throw new Error("L'ID de synchronisation n'a pas été reçu du serveur.");
+            }
             
+            const syncUrl = `${window.location.origin}${window.location.pathname}?syncId=${id}`;
+
+            setLoadingMessage('Génération du code QR...');
             const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(syncUrl)}`;
             
-            // Preload image to avoid showing a broken image while it loads
             const img = new Image();
             img.src = qrApiUrl;
             img.onload = () => {
