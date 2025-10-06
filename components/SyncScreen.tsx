@@ -137,7 +137,7 @@ const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack })
     };
 
   return (
-    <div className="p-4 bg-[#F9F9F5] min-h-screen">
+    <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24">
       <div className="flex items-center mb-8 relative h-10">
         <button onClick={onBack} className="p-2 absolute left-0" aria-label="Retour">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>

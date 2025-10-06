@@ -47,7 +47,7 @@ const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onSelect, onDelete }) =
 
 const RecipeListScreen: React.FC<RecipeListScreenProps> = ({ recipes, onSelectRecipe, onDeleteRequest }) => {
   return (
-    <div className="p-4 bg-[#F9F9F5] min-h-screen">
+    <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24">
       <h1 className="text-3xl font-bold text-gray-800 mb-6 px-2 text-center">Mes recettes</h1>
       {recipes.length > 0 ? (
         <div className="grid grid-cols-2 gap-4">

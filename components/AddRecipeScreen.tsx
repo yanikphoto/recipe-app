@@ -165,7 +165,7 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
     const isUrlEntered = recipeUrl.trim().length > 0;
 
     return (
-        <div className="p-4 bg-[#F9F9F5] min-h-screen">
+        <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24">
             {!urlInputVisible && (
                 <div className="flex items-center mb-8 relative h-10">
                     <button onClick={() => setActiveScreen('recipes')} className="p-2 absolute left-0">
