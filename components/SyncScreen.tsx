@@ -27,24 +27,81 @@ const uint8ArrayToUrlSafeBase64 = (uint8Array: Uint8Array): string => {
     return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 };
 
+// Helper to downscale a data URL image to reduce its size for syncing
+const downscaleImage = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const MAX_SYNC_DIMENSION = 128; // Smaller dimension for QR code data
+        const IMAGE_QUALITY = 0.7; // 70% quality JPEG compression
+
+        const img = new Image();
+        img.onload = () => {
+            let { width, height } = img;
+
+            if (width > MAX_SYNC_DIMENSION || height > MAX_SYNC_DIMENSION) {
+                if (width > height) {
+                    height = Math.round((height * MAX_SYNC_DIMENSION) / width);
+                    width = MAX_SYNC_DIMENSION;
+                } else {
+                    width = Math.round((width * MAX_SYNC_DIMENSION) / height);
+                    height = MAX_SYNC_DIMENSION;
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return reject(new Error("Impossible de créer le contexte du canevas pour le redimensionnement."));
+            }
+            
+            ctx.drawImage(img, 0, 0, width, height);
+            const newDataUrl = canvas.toDataURL('image/jpeg', IMAGE_QUALITY);
+            resolve(newDataUrl);
+        };
+        img.onerror = (error) => reject(new Error(`Le chargement de l'image a échoué pour le redimensionnement : ${error}`));
+        img.src = dataUrl;
+    });
+};
 
 const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack }) => {
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingMessage, setLoadingMessage] = useState('');
     const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
 
     const handleGenerateQRCode = async () => {
         setIsLoading(true);
+        setLoadingMessage('Préparation des données...');
         setQrCodeUrl(null);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 50)); // Allow UI to update
 
         try {
-            const dataToSync = { recipes, groceryList };
+            const recipesForSync = await Promise.all(recipes.map(async (recipe) => {
+                if (recipe.imageUrl.startsWith('data:image')) {
+                    try {
+                        const downscaledImageUrl = await downscaleImage(recipe.imageUrl);
+                        return { ...recipe, imageUrl: downscaledImageUrl };
+                    } catch (e) {
+                        console.error(`Impossible de réduire l'image pour la recette ${recipe.title}, l'image sera ignorée.`, e);
+                        return { ...recipe, imageUrl: '' }; // Fallback
+                    }
+                }
+                return recipe;
+            }));
+
+            const dataToSync = { recipes: recipesForSync, groceryList };
             const jsonString = JSON.stringify(dataToSync);
             
             const compressedData = await compressString(jsonString);
             const urlSafeBase64 = uint8ArrayToUrlSafeBase64(compressedData);
 
             const syncUrl = `${window.location.origin}${window.location.pathname}?sync=${urlSafeBase64}`;
+            
+            if (syncUrl.length > 4000) { // A conservative limit for QR codes
+                 throw new Error("Les données de la recette sont trop volumineuses pour être synchronisées via un code QR, même après compression. Essayez de synchroniser moins de recettes à la fois.");
+            }
+
+            setLoadingMessage('Génération du code QR...');
             
             const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(syncUrl)}`;
             
@@ -54,15 +111,17 @@ const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack })
             img.onload = () => {
                 setQrCodeUrl(qrApiUrl);
                 setIsLoading(false);
+                setLoadingMessage('');
             };
             img.onerror = () => {
-                throw new Error("Failed to load QR code image.");
+                throw new Error("Échec du chargement de l'image du code QR.");
             }
 
-        } catch (error) {
-            console.error('QR Code generation failed', error);
-            alert("Échec de la génération du code QR. Les données sont peut-être trop volumineuses ou vous êtes hors ligne.");
+        } catch (error: any) {
+            console.error('Échec de la génération du code QR', error);
+            alert(error.message || "Échec de la génération du code QR. Les données sont peut-être trop volumineuses ou vous êtes hors ligne.");
             setIsLoading(false);
+            setLoadingMessage('');
         }
     };
 
@@ -87,8 +146,9 @@ const SyncScreen: React.FC<SyncScreenProps> = ({ recipes, groceryList, onBack })
         </div>
 
         {isLoading && (
-            <div className="mt-8 flex justify-center">
+            <div className="mt-8 flex flex-col items-center justify-center">
                 <Spinner />
+                {loadingMessage && <p className="text-gray-600 mt-2">{loadingMessage}</p>}
             </div>
         )}
 
