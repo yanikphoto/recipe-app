@@ -24,8 +24,10 @@
       "type": "image/svg+xml"
     }
   ],
-  "start_url": "/",
+  "start_url": "/index.html",
+  "scope": "/",
   "display": "standalone",
+  "handle_links": "auto",
   "theme_color": "#F9F9F5",
   "background_color": "#F9F9F5"
 }

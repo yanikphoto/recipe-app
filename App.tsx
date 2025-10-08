@@ -11,6 +11,7 @@ import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
 import SyncScreen from './components/SyncScreen';
 import Spinner from './components/Spinner';
+import SyncLandingPage from './components/SyncLandingPage';
 
 const RECIPES_STORAGE_KEY = 'nosRecettes.recipes';
 const GROCERY_LIST_STORAGE_KEY = 'nosRecettes.groceryList';
@@ -19,6 +20,24 @@ type SyncData = {
     recipes: Recipe[];
     groceryList: GroceryListItem[];
 };
+
+// --- Cookie Helper Functions ---
+function getCookie(name: string): string | null {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+    return null;
+}
+
+function setCookie(name: string, value: string, seconds: number) {
+    const expires = new Date(Date.now() + seconds * 1000).toUTCString();
+    document.cookie = `${name}=${value};expires=${expires};path=/`;
+}
+
+function deleteCookie(name: string) {
+    document.cookie = `${name}=;path=/;max-age=0`;
+}
+
 
 // Helper function to decompress a Gzipped Uint8Array to a string
 const decompressUint8Array = async (input: Uint8Array): Promise<string> => {
@@ -71,6 +90,7 @@ const App: React.FC = () => {
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
     const [dataToImport, setDataToImport] = useState<SyncData | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isSyncLandingPage, setIsSyncLandingPage] = useState(false);
     
     const [groceryList, setGroceryList] = useState<GroceryListItem[]>(() => {
         try {
@@ -110,42 +130,60 @@ const App: React.FC = () => {
         }
     }, [groceryList]);
     
-    // Check for sync data in URL on initial load
+    // Unified effect to handle app launch with a potential sync operation
     useEffect(() => {
-        const processUrlData = async () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const syncId = urlParams.get('syncId');
-
-            if (syncId) {
-                setIsSyncing(true);
-                try {
-                    const response = await fetch(`/api/sync?id=${syncId}`);
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({}));
-                        throw new Error(errorData.error || `Échec de la récupération des données de synchronisation: ${response.statusText}`);
-                    }
-                    
-                    const compressedDataBlob = await response.blob();
-                    const compressedData = new Uint8Array(await compressedDataBlob.arrayBuffer());
-                    const jsonString = await decompressUint8Array(compressedData);
-                    const parsedData = JSON.parse(jsonString);
-                    
-                    if (parsedData && Array.isArray(parsedData.recipes) && Array.isArray(parsedData.groceryList)) {
-                        setDataToImport(parsedData);
-                    } else {
-                        throw new Error("Les données de synchronisation sont invalides.");
-                    }
-                } catch (e: any) {
-                    console.error("Failed to process sync data", e);
-                    alert(e.message || "Les données de synchronisation sont invalides, corrompues ou ont expiré.");
-                } finally {
-                    setIsSyncing(false);
-                    window.history.replaceState({}, document.title, window.location.pathname);
+        const processSyncData = async (syncId: string) => {
+            setIsSyncing(true);
+            try {
+                const response = await fetch(`/api/sync?id=${syncId}`);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `Échec de la récupération des données de synchronisation: ${response.statusText}`);
                 }
+                
+                const compressedDataBlob = await response.blob();
+                const compressedData = new Uint8Array(await compressedDataBlob.arrayBuffer());
+                const jsonString = await decompressUint8Array(compressedData);
+                const parsedData = JSON.parse(jsonString);
+                
+                if (parsedData && Array.isArray(parsedData.recipes) && Array.isArray(parsedData.groceryList)) {
+                    setDataToImport(parsedData);
+                } else {
+                    throw new Error("Les données de synchronisation sont invalides.");
+                }
+            } catch (e: any) {
+                console.error("Failed to process sync data", e);
+                alert(e.message || "Les données de synchronisation sont invalides, corrompues ou ont expiré.");
+            } finally {
+                setIsSyncing(false);
             }
         };
-        
-        processUrlData();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const syncIdFromUrl = urlParams.get('syncId');
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+
+        if (syncIdFromUrl) {
+            window.history.replaceState({}, document.title, window.location.pathname); // Clean URL immediately
+            if (!isStandalone) {
+                // Case 1: Link opened in a regular browser tab.
+                // Set a cookie and show a landing page to guide the user.
+                setCookie('pendingSyncId', syncIdFromUrl, 300); // 5 minute expiry
+                setIsSyncLandingPage(true);
+            } else {
+                // Case 2: Link opened directly in the PWA (e.g., on Android).
+                // Process the sync data immediately.
+                processSyncData(syncIdFromUrl);
+            }
+        } else {
+            // Case 3: App opened without a sync link in the URL.
+            // Check if there's a pending sync ID in a cookie from a browser tab.
+            const syncIdFromCookie = getCookie('pendingSyncId');
+            if (syncIdFromCookie) {
+                deleteCookie('pendingSyncId'); // Important: use the cookie only once.
+                processSyncData(syncIdFromCookie);
+            }
+        }
     }, []);
 
     const allCategories = useMemo(() => {
@@ -408,6 +446,10 @@ const App: React.FC = () => {
                 return <WelcomeScreen setActiveScreen={setActiveScreen} />;
         }
     };
+    
+    if (isSyncLandingPage) {
+        return <SyncLandingPage />;
+    }
 
     return (
         <div className="max-w-lg mx-auto font-sans bg-[#F9F9F5] min-h-screen">
