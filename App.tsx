@@ -130,8 +130,9 @@ const App: React.FC = () => {
         }
     }, [groceryList]);
     
-    // Unified effect to handle app launch with a potential sync operation
+    // Unified effect to handle app launch and resume for sync operations
     useEffect(() => {
+        // This function will fetch and process the sync data.
         const processSyncData = async (syncId: string) => {
             setIsSyncing(true);
             try {
@@ -159,31 +160,53 @@ const App: React.FC = () => {
             }
         };
 
+        // This function checks for a pending sync cookie and processes it.
+        const checkForCookieSync = () => {
+            const syncIdFromCookie = getCookie('pendingSyncId');
+            if (syncIdFromCookie) {
+                deleteCookie('pendingSyncId'); // Use the cookie only once.
+                processSyncData(syncIdFromCookie);
+            }
+        };
+
+        // This handler is for when the app becomes visible again (e.g., returning from background).
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                checkForCookieSync();
+            }
+        };
+
+        // --- Main Logic on App Mount ---
         const urlParams = new URLSearchParams(window.location.search);
         const syncIdFromUrl = urlParams.get('syncId');
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
 
         if (syncIdFromUrl) {
-            window.history.replaceState({}, document.title, window.location.pathname); // Clean URL immediately
+            // A sync ID is present in the URL.
+            window.history.replaceState({}, document.title, window.location.pathname); // Clean URL.
+            
             if (!isStandalone) {
-                // Case 1: Link opened in a regular browser tab.
-                // Set a cookie and show a landing page to guide the user.
+                // Case 1: In a regular browser tab. Set a cookie and show the landing page.
+                // The visibility listener will pick up the cookie when the PWA is opened.
                 setCookie('pendingSyncId', syncIdFromUrl, 300); // 5 minute expiry
                 setIsSyncLandingPage(true);
             } else {
-                // Case 2: Link opened directly in the PWA (e.g., on Android).
-                // Process the sync data immediately.
+                // Case 2: Opened directly in the PWA (Android or via app icon link). Process immediately.
                 processSyncData(syncIdFromUrl);
             }
         } else {
-            // Case 3: App opened without a sync link in the URL.
-            // Check if there's a pending sync ID in a cookie from a browser tab.
-            const syncIdFromCookie = getCookie('pendingSyncId');
-            if (syncIdFromCookie) {
-                deleteCookie('pendingSyncId'); // Important: use the cookie only once.
-                processSyncData(syncIdFromCookie);
-            }
+            // Case 3: Normal app launch. Check for a cookie in case the app was fully closed
+            // after visiting the sync link in the browser.
+            checkForCookieSync();
         }
+
+        // Listen for visibility changes to handle the iOS PWA resume case.
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // Cleanup the listener when the component unmounts.
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     const allCategories = useMemo(() => {
