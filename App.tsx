@@ -72,20 +72,42 @@ const App: React.FC = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // Main function to load data from API or fallback to localStorage
+    // Main function to sync data from API. It now performs a merge.
     const loadData = async () => {
         if (syncInProgress) return;
         setSyncInProgress(true);
         try {
-            const data = await apiSync.getData();
-            setRecipes(data.recipes || []);
-            setGroceryList(data.groceryList || []);
-            setIsOnline(true);
-            setLastSyncTime(new Date());
+            // This is now a two-way sync. It fetches server data, merges it with
+            // local state (preserving offline changes), and saves it back.
+            const serverData = await apiSync.getData();
             
-            // Save to localStorage as a backup
-            localStorage.setItem('family_recipes', JSON.stringify(data.recipes || []));
-            localStorage.setItem('family_grocery', JSON.stringify(data.groceryList || []));
+            // Merge server data with current client state. Client state wins conflicts.
+            const recipeMap = new Map();
+            (serverData.recipes || []).forEach(r => recipeMap.set(r.id, r));
+            recipes.forEach(r => recipeMap.set(r.id, r));
+
+            const groceryMap = new Map();
+            (serverData.groceryList || []).forEach(i => groceryMap.set(i.id, i));
+            groceryList.forEach(i => groceryMap.set(i.id, i));
+            
+            const recipesToSave = Array.from(recipeMap.values());
+            const groceryToSave = Array.from(groceryMap.values());
+            
+            // Post the merged data back to the server to consolidate the state
+            const finalData = await apiSync.saveData({ recipes: recipesToSave, groceryList: groceryToSave });
+
+            if (finalData) {
+                // Update client with the final authoritative state from the server
+                setRecipes(finalData.recipes || []);
+                setGroceryList(finalData.groceryList || []);
+                setIsOnline(true);
+                setLastSyncTime(new Date());
+                
+                localStorage.setItem('family_recipes', JSON.stringify(finalData.recipes || []));
+                localStorage.setItem('family_grocery', JSON.stringify(finalData.groceryList || []));
+            } else {
+                throw new Error("Failed to save merged data during sync.");
+            }
             
         } catch (error) {
             console.error('Failed to sync from API, loading from localStorage:', error);
@@ -101,7 +123,7 @@ const App: React.FC = () => {
         }
     };
 
-    // Central function to save data, handling optimistic updates and state refresh
+    // Central function to save data, with robust merging to prevent data loss.
     const saveData = async (updatedRecipes: Recipe[], updatedGroceryList: GroceryListItem[]) => {
         // 1. Optimistic UI update for a snappy experience
         setRecipes(updatedRecipes);
@@ -116,14 +138,28 @@ const App: React.FC = () => {
         
         setSyncInProgress(true);
         try {
-            // 2. Call API, which returns the authoritative merged data
-            const mergedData = await apiSync.saveData({
-                recipes: updatedRecipes,
-                groceryList: updatedGroceryList
-            });
+            // 2. Fetch latest server state before saving to prevent overwriting data.
+            const serverData = await apiSync.getData();
+
+            // 3. Merge server state with our intended optimistic updates.
+            const recipeMap = new Map();
+            (serverData.recipes || []).forEach(r => recipeMap.set(r.id, r));
+            updatedRecipes.forEach(r => recipeMap.set(r.id, r)); // Our changes take precedence
+
+            const groceryMap = new Map();
+            (serverData.groceryList || []).forEach(i => groceryMap.set(i.id, i));
+            updatedGroceryList.forEach(i => groceryMap.set(i.id, i)); // Our changes take precedence
+
+            const dataToSave = {
+                recipes: Array.from(recipeMap.values()),
+                groceryList: Array.from(groceryMap.values()),
+            };
+            
+            // 4. Call API with the fully merged data.
+            const mergedData = await apiSync.saveData(dataToSave);
             
             if (mergedData) {
-                // 3. Update state and localStorage with the authoritative data from the server
+                // 5. Update state with the authoritative data from the server's final merge.
                 const finalRecipes = mergedData.recipes || [];
                 const finalGroceryList = mergedData.groceryList || [];
                 setRecipes(finalRecipes);
