@@ -19,7 +19,7 @@ const App: React.FC = () => {
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
     const [groceryList, setGroceryList] = useState<GroceryListItem[]>([]);
 
-    // NEW: Sync state
+    // Sync state
     const [isOnline, setIsOnline] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
     const [syncInProgress, setSyncInProgress] = useState(false);
@@ -43,23 +43,23 @@ const App: React.FC = () => {
 
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
-    // NEW: Load data on mount
+    // Load data on initial mount
     useEffect(() => {
         loadData();
     }, []);
 
-    // NEW: Auto-sync every 30 seconds
+    // Auto-sync every 30 seconds if online and not already syncing
     useEffect(() => {
         const interval = setInterval(() => {
-            if (isOnline) {
+            if (isOnline && !syncInProgress) {
                 loadData();
             }
         }, 30000);
         
         return () => clearInterval(interval);
-    }, [isOnline]);
+    }, [isOnline, syncInProgress]);
 
-    // NEW: Check online status periodically
+    // Check online status periodically
     useEffect(() => {
         const checkOnline = async () => {
             const online = await apiSync.checkHealth();
@@ -72,20 +72,18 @@ const App: React.FC = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // NEW: Load data function
+    // Main function to load data from API or fallback to localStorage
     const loadData = async () => {
+        if (syncInProgress) return;
+        setSyncInProgress(true);
         try {
-            setSyncInProgress(true);
-            
-            // Try to get data from API
             const data = await apiSync.getData();
-            
             setRecipes(data.recipes || []);
             setGroceryList(data.groceryList || []);
             setIsOnline(true);
             setLastSyncTime(new Date());
             
-            // Save to localStorage as backup
+            // Save to localStorage as a backup
             localStorage.setItem('family_recipes', JSON.stringify(data.recipes || []));
             localStorage.setItem('family_grocery', JSON.stringify(data.groceryList || []));
             
@@ -93,40 +91,57 @@ const App: React.FC = () => {
             console.error('Failed to sync from API, loading from localStorage:', error);
             setIsOnline(false);
             
-            // Load from localStorage as fallback
             const localRecipes = localStorage.getItem('family_recipes');
             const localGrocery = localStorage.getItem('family_grocery');
             
-            if (localRecipes) {
-                setRecipes(JSON.parse(localRecipes));
-            }
-            if (localGrocery) {
-                setGroceryList(JSON.parse(localGrocery));
-            }
+            if (localRecipes) setRecipes(JSON.parse(localRecipes));
+            if (localGrocery) setGroceryList(JSON.parse(localGrocery));
         } finally {
             setSyncInProgress(false);
         }
     };
 
-    // NEW: Save data function
-    const saveData = async () => {
-        if (!isOnline) return;
+    // Central function to save data, handling optimistic updates and state refresh
+    const saveData = async (updatedRecipes: Recipe[], updatedGroceryList: GroceryListItem[]) => {
+        // 1. Optimistic UI update for a snappy experience
+        setRecipes(updatedRecipes);
+        setGroceryList(updatedGroceryList);
+        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+        localStorage.setItem('family_grocery', JSON.stringify(updatedGroceryList));
+
+        if (!isOnline) {
+            console.warn("Offline. Changes saved locally and will sync later.");
+            return;
+        }
         
+        setSyncInProgress(true);
         try {
-            const success = await apiSync.saveData({
-                recipes,
-                groceryList
+            // 2. Call API, which returns the authoritative merged data
+            const mergedData = await apiSync.saveData({
+                recipes: updatedRecipes,
+                groceryList: updatedGroceryList
             });
             
-            if (success) {
+            if (mergedData) {
+                // 3. Update state and localStorage with the authoritative data from the server
+                const finalRecipes = mergedData.recipes || [];
+                const finalGroceryList = mergedData.groceryList || [];
+                setRecipes(finalRecipes);
+                setGroceryList(finalGroceryList);
+                localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
+                localStorage.setItem('family_grocery', JSON.stringify(finalGroceryList));
                 setLastSyncTime(new Date());
+            } else {
+                 console.error('Sync failed. Local data is preserved.');
             }
         } catch (error) {
             console.error('Failed to save to API:', error);
+        } finally {
+            setSyncInProgress(false);
         }
     };
 
-    // NEW: Manual sync function
+    // Manual sync for the UI button
     const manualSync = () => {
         loadData();
     };
@@ -271,93 +286,88 @@ const App: React.FC = () => {
         setIsSearchOpen(false);
     };
     
-    // UPDATED: Add recipe with sync
     const addRecipe = async (recipe: Recipe) => {
-        const updatedRecipes = [recipe, ...recipes];
+        // 1. Optimistic update for instant UI feedback
+        const updatedRecipes = [recipe, ...recipes.filter(r => r.id !== recipe.id)];
         setRecipes(updatedRecipes);
-        
-        // Save to localStorage as backup
         localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        
-        // Try to sync to API
-        await saveData();
-        
         setCurrentScreen('recipes');
         setIsSearchOpen(false);
+        
+        if (isOnline) {
+            setSyncInProgress(true); // Lock auto-sync
+            try {
+                // 2. Use dedicated, more reliable endpoint for adding
+                const success = await apiSync.addRecipeOnly(recipe);
+                if (success) {
+                    // 3. Fetch latest state from server to ensure full consistency
+                    await loadData();
+                } else {
+                    console.error("Failed to sync new recipe. It remains saved locally.");
+                    setSyncInProgress(false);
+                }
+            } catch (error) {
+                 console.error("Error syncing new recipe:", error);
+                 setSyncInProgress(false);
+            }
+        }
     };
 
-    // UPDATED: Update recipe with sync
     const updateRecipe = async (updatedRecipe: Recipe) => {
         const updatedRecipes = recipes.map(r => r.id === updatedRecipe.id ? updatedRecipe : r);
-        setRecipes(updatedRecipes);
-        
         if (selectedRecipe?.id === updatedRecipe.id) {
             setSelectedRecipe(updatedRecipe);
         }
-        
-        // Save to localStorage and sync
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        await saveData();
+        await saveData(updatedRecipes, groceryList);
     };
 
-    // UPDATED: Delete recipe with sync
     const deleteRecipe = async (id: string) => {
         const updatedRecipes = recipes.filter(r => r.id !== id);
-        setRecipes(updatedRecipes);
-        setRecipeToDelete(null);
-        
         if (selectedRecipe?.id === id) {
             setCurrentScreen('recipes');
             setSelectedRecipe(null);
         }
-        
-        // Save to localStorage and sync
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        await saveData();
+        setRecipeToDelete(null); // Close confirmation modal
+        await saveData(updatedRecipes, groceryList);
     };
     
-    const toggleGroceryItemFromIngredient = (ingredient: Ingredient) => {
-        const ingredientString = `${ingredient.quantity ? `${ingredient.quantity} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
+    // Helper to format quantity for grocery list items, consistent with detail view
+    const getAdjustedQuantityString = (quantity?: number) => {
+        if (quantity === undefined) return '';
+        if (quantity % 1 === 0.5) return `${Math.floor(quantity) || ''} ½`;
+        if (quantity % 1 === 0.25) return `${Math.floor(quantity) || ''} ¼`;
+        if (quantity % 1 === 0.75) return `${Math.floor(quantity) || ''} ¾`;
+        if (quantity % 1 !== 0) return quantity.toFixed(2);
+        return String(quantity);
+    };
+
+    const toggleGroceryItemFromIngredient = async (ingredient: Ingredient) => {
+        const ingredientString = `${ingredient.quantity ? `${getAdjustedQuantityString(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
         const existingItem = groceryList.find(item => item.name.toLowerCase() === ingredientString.toLowerCase());
 
+        let updatedList: GroceryListItem[];
         if (existingItem) {
-            setGroceryList(prev => prev.filter(item => item.id !== existingItem.id));
+            updatedList = groceryList.filter(item => item.id !== existingItem.id);
         } else {
-            const newItem: GroceryListItem = {
-                id: crypto.randomUUID(),
-                name: ingredientString,
-                completed: false,
-            };
-            setGroceryList(prev => [...prev, newItem]);
+            const newItem: GroceryListItem = { id: crypto.randomUUID(), name: ingredientString, completed: false };
+            updatedList = [newItem, ...groceryList];
         }
+        await saveData(recipes, updatedList);
     };
         
-    // UPDATED: Add grocery item with sync
     const addCustomGroceryItem = async (name: string) => {
         const newItem: GroceryListItem = { id: crypto.randomUUID(), name, completed: false };
         const updatedItems = [newItem, ...groceryList];
-        setGroceryList(updatedItems);
-        
-        // Save to localStorage and sync
-        localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-        await saveData();
+        await saveData(recipes, updatedItems);
     };
 
-    // UPDATED: Delete grocery item with sync
     const deleteGroceryItem = async (id: string) => {
         const updatedItems = groceryList.filter(item => item.id !== id);
-        setGroceryList(updatedItems);
-        
-        // Save to localStorage and sync
-        localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-        await saveData();
+        await saveData(recipes, updatedItems);
     };
 
-    const reorderGroceryItems = (reorderedList: GroceryListItem[]) => {
-        setGroceryList(reorderedList);
-        // Also save reordered list
-        localStorage.setItem('family_grocery', JSON.stringify(reorderedList));
-        saveData();
+    const reorderGroceryItems = async (reorderedList: GroceryListItem[]) => {
+        await saveData(recipes, reorderedList);
     };
 
     const renderScreen = () => {
@@ -407,18 +417,18 @@ const App: React.FC = () => {
 
     return (
         <div className="max-w-lg mx-auto font-sans bg-[#F9F9F5] min-h-screen">
-            {/* NEW: Sync Status Indicator */}
+            {/* Sync Status Indicator */}
             <div className="fixed top-4 right-4 bg-white rounded-lg shadow-md p-3 text-xs z-50">
                 {syncInProgress ? (
                     <div className="flex items-center gap-2 text-blue-500">
                         <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
-                        <span>Syncing...</span>
+                        <span>Synchronisation...</span>
                     </div>
                 ) : isOnline ? (
                     <div>
                         <div className="flex items-center gap-2 text-green-500">
                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span>Online</span>
+                            <span>En ligne</span>
                         </div>
                         {lastSyncTime && (
                             <div className="text-gray-500 mt-1">
@@ -430,13 +440,13 @@ const App: React.FC = () => {
                     <div>
                         <div className="flex items-center gap-2 text-red-500">
                             <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                            <span>Offline</span>
+                            <span>Hors ligne</span>
                         </div>
                         <button 
                             onClick={manualSync}
                             className="text-blue-500 underline mt-1 block"
                         >
-                            Retry
+                            Réessayer
                         </button>
                     </div>
                 )}
