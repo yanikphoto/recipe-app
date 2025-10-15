@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
 import { apiSync } from './services/apiSync';
@@ -81,8 +80,18 @@ const App: React.FC = () => {
                     const serverData = await apiSync.getData();
                     const localRecipesJSON = localStorage.getItem('family_recipes');
                     const localGroceryJSON = localStorage.getItem('family_grocery');
-                    const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON) : [];
-                    const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON) : [];
+                    let localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON) : [];
+                    let localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON) : [];
+
+                    // CRITICAL FIX: Process deletions first. Remove items from local state that the server says are deleted.
+                    if (serverData.deletedRecipeIds && serverData.deletedRecipeIds.length > 0) {
+                        const deletedRecipeIds = new Set(serverData.deletedRecipeIds);
+                        localRecipes = localRecipes.filter((r: Recipe) => r && r.id && !deletedRecipeIds.has(r.id));
+                    }
+                    if (serverData.deletedGroceryIds && serverData.deletedGroceryIds.length > 0) {
+                        const deletedGroceryIds = new Set(serverData.deletedGroceryIds);
+                        localGrocery = localGrocery.filter((i: GroceryListItem) => i && i.id && !deletedGroceryIds.has(i.id));
+                    }
 
                     // Merge logic: Server is the base, local changes are layered on top.
                     const recipeMap = new Map();
