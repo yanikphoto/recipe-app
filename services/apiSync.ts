@@ -13,7 +13,7 @@ export const apiSync = {
   // Get all data from backend
   async getData(): Promise<AppData> {
     try {
-      const response = await fetch(API_URL);
+      const response = await fetch(API_URL, { cache: 'no-cache' });
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Data fetched from backend:', data);
@@ -34,7 +34,8 @@ export const apiSync = {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
+        cache: 'no-cache',
       });
       
       if (response.ok) {
@@ -60,7 +61,8 @@ export const apiSync = {
       const response = await fetch('https://recipe-app-backend-pt4u.onrender.com/api/recipes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRecipe)
+        body: JSON.stringify(newRecipe),
+        cache: 'no-cache',
       });
       
       if (response.ok) {
@@ -80,7 +82,7 @@ export const apiSync = {
   // Check if backend is available
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch('https://recipe-app-backend-pt4u.onrender.com/api/health');
+      const response = await fetch('https://recipe-app-backend-pt4u.onrender.com/api/health', { cache: 'no-cache' });
       return response.ok;
     } catch {
       return false;
