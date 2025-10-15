@@ -1,11 +1,12 @@
 import { Recipe, GroceryListItem } from '../types';
 
-// Replace with your actual Render URL
-const API_URL = 'https://recipe-app-backend-pt4u.onrender.com';
+// 🔥 FIX: Use the correct endpoint
+const API_URL = 'https://recipe-app-backend-pt4u.onrender.com/api/data';
 
 interface AppData {
   recipes: Recipe[];
   groceryList: GroceryListItem[];
+  lastUpdated?: string;
 }
 
 export const apiSync = {
@@ -25,7 +26,7 @@ export const apiSync = {
     }
   },
 
-  // Save all data to backend - FIXED VERSION
+  // Save all data to backend - NOW WORKS WITH BACKEND MERGING
   async saveData(data: AppData): Promise<boolean> {
     try {
       console.log('📤 Saving data to backend:', data);
@@ -37,16 +38,14 @@ export const apiSync = {
       });
       
       if (response.ok) {
-        // 🔥 CRITICAL FIX: Get the merged data from backend
-        const backendData = await response.json();
-        console.log('📥 Backend response after save:', backendData);
+        // Backend now returns merged data
+        const mergedData = await response.json();
+        console.log('📥 Backend merged data:', mergedData);
         
-        // 🔥 CRITICAL FIX: Update localStorage with backend's authoritative data
-        // This prevents your local changes from being overwritten on next sync
-        localStorage.setItem('family_recipes', JSON.stringify(backendData.recipes || []));
-        localStorage.setItem('family_grocery', JSON.stringify(backendData.groceryList || []));
+        // Update localStorage with merged data
+        localStorage.setItem('family_recipes', JSON.stringify(mergedData.recipes || []));
+        localStorage.setItem('family_grocery', JSON.stringify(mergedData.groceryList || []));
         
-        console.log('✅ Data saved and localStorage updated');
         return true;
       } else {
         console.error('❌ Backend returned error:', response.status, response.statusText);
@@ -58,10 +57,41 @@ export const apiSync = {
     }
   },
 
+  // 🔥 NEW: Add single recipe (more reliable)
+  async addRecipeOnly(newRecipe: Recipe): Promise<boolean> {
+    try {
+      console.log('📤 Adding single recipe:', newRecipe);
+      
+      const response = await fetch('https://recipe-app-backend-pt4u.onrender.com/api/recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecipe)
+      });
+      
+      if (response.ok) {
+        const savedRecipe = await response.json();
+        console.log('✅ Recipe saved:', savedRecipe);
+        
+        // Update localStorage
+        const currentRecipes = JSON.parse(localStorage.getItem('family_recipes') || '[]');
+        const updatedRecipes = [savedRecipe, ...currentRecipes.filter(r => r.id !== savedRecipe.id)];
+        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+        
+        return true;
+      } else {
+        console.error('❌ Failed to save recipe:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error adding recipe:', error);
+      return false;
+    }
+  },
+
   // Check if backend is available
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch(`${API_URL.replace('/data', '/health')}`);
+      const response = await fetch('https://recipe-app-backend-pt4u.onrender.com/api/health');
       return response.ok;
     } catch {
       return false;
