@@ -15,7 +15,7 @@ const NavItem = ({ icon, label, isActive, onClick }: { icon: React.ReactNode, la
 );
 
 const BottomNav: React.FC<BottomNavProps> = ({ activeScreen, setActiveScreen }) => {
-  const isNavScreen = ['recipes', 'add', 'search', 'list', 'recipe-detail', 'timer', 'sync'].includes(activeScreen);
+  const isNavScreen = ['recipes', 'add', 'search', 'list', 'recipe-detail', 'timer'].includes(activeScreen);
 
   if (!isNavScreen) return null;
 
@@ -62,12 +62,6 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeScreen, setActiveScreen }) 
           isActive={activeScreen === 'timer'}
           onClick={() => setActiveScreen('timer')}
           icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-        />
-        <NavItem
-          label="Sync"
-          isActive={activeScreen === 'sync'}
-          onClick={() => setActiveScreen('sync')}
-          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>}
         />
       </div>
     </footer>
