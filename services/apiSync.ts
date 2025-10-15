@@ -1,7 +1,7 @@
+
 import { Recipe, GroceryListItem } from '../types';
 
-// Use the correct endpoint for the Render.com backend
-const API_URL = 'https://recipe-app-backend-pt4u.onrender.com/api/data';
+const API_BASE_URL = 'https://recipe-app-backend-pt4u.onrender.com/api';
 
 interface AppData {
   recipes: Recipe[];
@@ -10,79 +10,91 @@ interface AppData {
 }
 
 export const apiSync = {
-  // Get all data from backend
   async getData(): Promise<AppData> {
     try {
-      const response = await fetch(API_URL, { cache: 'no-cache' });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Data fetched from backend:', data);
-        return data;
-      }
+      const response = await fetch(`${API_BASE_URL}/data`, { cache: 'no-cache' });
+      if (response.ok) return await response.json();
       throw new Error('Failed to fetch data');
     } catch (error) {
-      console.error('❌ API Error:', error);
+      console.error('❌ API Error fetching data:', error);
       throw error;
     }
   },
 
-  // Save all data to backend and return the merged data
   async saveData(data: AppData): Promise<AppData | null> {
     try {
-      console.log('📤 Saving data to backend:', data);
-      
-      const response = await fetch(API_URL, {
+      const response = await fetch(`${API_BASE_URL}/data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
         cache: 'no-cache',
       });
-      
-      if (response.ok) {
-        // Backend returns the fully merged data
-        const mergedData = await response.json();
-        console.log('📥 Backend merged data:', mergedData);
-        return mergedData;
-      } else {
-        console.error('❌ Backend returned error:', response.status, response.statusText);
-        return null;
-      }
+      return response.ok ? await response.json() : null;
     } catch (error) {
-      console.error('❌ API Error during save:', error);
+      console.error('❌ API Error saving data:', error);
       return null;
     }
   },
 
-  // Add a single recipe to the backend
   async addRecipeOnly(newRecipe: Recipe): Promise<boolean> {
     try {
-      console.log('📤 Adding single recipe:', newRecipe);
-      
-      const response = await fetch('https://recipe-app-backend-pt4u.onrender.com/api/recipes', {
+      const response = await fetch(`${API_BASE_URL}/recipes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRecipe),
         cache: 'no-cache',
       });
-      
-      if (response.ok) {
-        const savedRecipe = await response.json();
-        console.log('✅ Recipe saved:', savedRecipe.title);
-        return true;
-      } else {
-        console.error('❌ Failed to save recipe:', response.status);
-        return false;
-      }
+      return response.ok;
     } catch (error) {
       console.error('❌ Error adding recipe:', error);
       return false;
     }
   },
 
-  // Check if backend is available
+  async deleteRecipe(id: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/recipes/${id}`, {
+        method: 'DELETE',
+        cache: 'no-cache',
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('❌ Error deleting recipe:', error);
+      return false;
+    }
+  },
+  
+  async addGroceryItem(newItem: GroceryListItem): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/grocery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem),
+        cache: 'no-cache',
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('❌ Error adding grocery item:', error);
+      return false;
+    }
+  },
+  
+  async deleteGroceryItem(id: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/grocery/${id}`, {
+        method: 'DELETE',
+        cache: 'no-cache',
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('❌ Error deleting grocery item:', error);
+      return false;
+    }
+  },
+
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch('https://recipe-app-backend-pt4u.onrender.com/api/health', { cache: 'no-cache' });
+      const response = await fetch(`${API_BASE_URL}/health`, { cache: 'no-cache' });
       return response.ok;
     } catch {
       return false;
