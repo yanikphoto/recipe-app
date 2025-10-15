@@ -1,6 +1,6 @@
 import { Recipe, GroceryListItem } from '../types';
 
-// 🔥 FIX: Use the correct endpoint
+// Use the correct endpoint for the Render.com backend
 const API_URL = 'https://recipe-app-backend-pt4u.onrender.com/api/data';
 
 interface AppData {
@@ -26,8 +26,8 @@ export const apiSync = {
     }
   },
 
-  // Save all data to backend - NOW WORKS WITH BACKEND MERGING
-  async saveData(data: AppData): Promise<boolean> {
+  // Save all data to backend and return the merged data
+  async saveData(data: AppData): Promise<AppData | null> {
     try {
       console.log('📤 Saving data to backend:', data);
       
@@ -38,26 +38,21 @@ export const apiSync = {
       });
       
       if (response.ok) {
-        // Backend now returns merged data
+        // Backend returns the fully merged data
         const mergedData = await response.json();
         console.log('📥 Backend merged data:', mergedData);
-        
-        // Update localStorage with merged data
-        localStorage.setItem('family_recipes', JSON.stringify(mergedData.recipes || []));
-        localStorage.setItem('family_grocery', JSON.stringify(mergedData.groceryList || []));
-        
-        return true;
+        return mergedData;
       } else {
         console.error('❌ Backend returned error:', response.status, response.statusText);
-        return false;
+        return null;
       }
     } catch (error) {
       console.error('❌ API Error during save:', error);
-      return false;
+      return null;
     }
   },
 
-  // 🔥 NEW: Add single recipe (more reliable)
+  // Add a single recipe to the backend
   async addRecipeOnly(newRecipe: Recipe): Promise<boolean> {
     try {
       console.log('📤 Adding single recipe:', newRecipe);
@@ -70,13 +65,7 @@ export const apiSync = {
       
       if (response.ok) {
         const savedRecipe = await response.json();
-        console.log('✅ Recipe saved:', savedRecipe);
-        
-        // Update localStorage
-        const currentRecipes = JSON.parse(localStorage.getItem('family_recipes') || '[]');
-        const updatedRecipes = [savedRecipe, ...currentRecipes.filter(r => r.id !== savedRecipe.id)];
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        
+        console.log('✅ Recipe saved:', savedRecipe.title);
         return true;
       } else {
         console.error('❌ Failed to save recipe:', response.status);
