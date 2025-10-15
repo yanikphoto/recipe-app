@@ -287,30 +287,15 @@ const App: React.FC = () => {
     };
     
     const addRecipe = async (recipe: Recipe) => {
-        // 1. Optimistic update for instant UI feedback
         const updatedRecipes = [recipe, ...recipes.filter(r => r.id !== recipe.id)];
-        setRecipes(updatedRecipes);
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+        
+        // This function handles the optimistic UI update, local storage, API sync,
+        // and updating state with the merged result from the server.
+        await saveData(updatedRecipes, groceryList);
+
+        // Navigate after the save operation is complete.
         setCurrentScreen('recipes');
         setIsSearchOpen(false);
-        
-        if (isOnline) {
-            setSyncInProgress(true); // Lock auto-sync
-            try {
-                // 2. Use dedicated, more reliable endpoint for adding
-                const success = await apiSync.addRecipeOnly(recipe);
-                if (success) {
-                    // 3. Fetch latest state from server to ensure full consistency
-                    await loadData();
-                } else {
-                    console.error("Failed to sync new recipe. It remains saved locally.");
-                    setSyncInProgress(false);
-                }
-            } catch (error) {
-                 console.error("Error syncing new recipe:", error);
-                 setSyncInProgress(false);
-            }
-        }
     };
 
     const updateRecipe = async (updatedRecipe: Recipe) => {
