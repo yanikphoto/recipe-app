@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
 import { apiSync } from './services/apiSync';
@@ -113,11 +114,30 @@ const App: React.FC = () => {
             console.error('Failed to sync from API, loading from localStorage:', error);
             setIsOnline(false);
             
-            const localRecipes = localStorage.getItem('family_recipes');
-            const localGrocery = localStorage.getItem('family_grocery');
-            
-            if (localRecipes) setRecipes(JSON.parse(localRecipes));
-            if (localGrocery) setGroceryList(JSON.parse(localGrocery));
+            try {
+                const localRecipesJSON = localStorage.getItem('family_recipes');
+                if (localRecipesJSON) {
+                    const parsedRecipes = JSON.parse(localRecipesJSON);
+                    if (Array.isArray(parsedRecipes)) {
+                        // Sanitize data to prevent propagation of corrupt records
+                        setRecipes(parsedRecipes.filter(r => r && r.id));
+                    }
+                }
+
+                const localGroceryJSON = localStorage.getItem('family_grocery');
+                if (localGroceryJSON) {
+                    const parsedGrocery = JSON.parse(localGroceryJSON);
+                    if (Array.isArray(parsedGrocery)) {
+                        // Sanitize data to prevent propagation of corrupt records
+                        setGroceryList(parsedGrocery.filter(i => i && i.id));
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse or sanitize data from localStorage:", e);
+                // If localStorage is corrupt, start with empty lists
+                setRecipes([]);
+                setGroceryList([]);
+            }
         } finally {
             setSyncInProgress(false);
         }
