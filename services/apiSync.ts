@@ -1,4 +1,3 @@
-
 import { Recipe, GroceryListItem } from '../types';
 
 const API_BASE_URL = 'https://recipe-app-backend-pt4u.onrender.com/api';
@@ -7,6 +6,8 @@ interface AppData {
   recipes: Recipe[];
   groceryList: GroceryListItem[];
   lastUpdated?: string;
+  deletedRecipeIds?: string[];
+  deletedGroceryIds?: string[];
 }
 
 export const apiSync = {
