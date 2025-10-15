@@ -44,163 +44,95 @@ const App: React.FC = () => {
 
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
-    // Load data on initial mount
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    // Auto-sync every 30 seconds if online and not already syncing
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (isOnline && !syncInProgress) {
-                loadData();
-            }
-        }, 30000);
-        
-        return () => clearInterval(interval);
-    }, [isOnline, syncInProgress]);
-
-    // Check online status periodically
-    useEffect(() => {
-        const checkOnline = async () => {
-            const online = await apiSync.checkHealth();
-            setIsOnline(online);
-        };
-        
-        checkOnline();
-        const interval = setInterval(checkOnline, 60000); // Check every minute
-        
-        return () => clearInterval(interval);
-    }, []);
-
-    // Main function to sync data from API. It now performs a merge.
-    const loadData = async () => {
-        if (syncInProgress) return;
-        setSyncInProgress(true);
-        try {
-            // This is now a two-way sync. It fetches server data, merges it with
-            // local state (preserving offline changes), and saves it back.
-            const serverData = await apiSync.getData();
-            
-            // Merge server data with current client state. Client state wins conflicts.
-            const recipeMap = new Map();
-            (serverData.recipes || []).forEach(r => recipeMap.set(r.id, r));
-            recipes.forEach(r => recipeMap.set(r.id, r));
-
-            const groceryMap = new Map();
-            (serverData.groceryList || []).forEach(i => groceryMap.set(i.id, i));
-            groceryList.forEach(i => groceryMap.set(i.id, i));
-            
-            const recipesToSave = Array.from(recipeMap.values());
-            const groceryToSave = Array.from(groceryMap.values());
-            
-            // Post the merged data back to the server to consolidate the state
-            const finalData = await apiSync.saveData({ recipes: recipesToSave, groceryList: groceryToSave });
-
-            if (finalData) {
-                // Update client with the final authoritative state from the server
-                setRecipes(finalData.recipes || []);
-                setGroceryList(finalData.groceryList || []);
-                setIsOnline(true);
-                setLastSyncTime(new Date());
-                
-                localStorage.setItem('family_recipes', JSON.stringify(finalData.recipes || []));
-                localStorage.setItem('family_grocery', JSON.stringify(finalData.groceryList || []));
-            } else {
-                throw new Error("Failed to save merged data during sync.");
-            }
-            
-        } catch (error) {
-            console.error('Failed to sync from API, loading from localStorage:', error);
-            setIsOnline(false);
-            
-            try {
-                const localRecipesJSON = localStorage.getItem('family_recipes');
-                if (localRecipesJSON) {
-                    const parsedRecipes = JSON.parse(localRecipesJSON);
-                    if (Array.isArray(parsedRecipes)) {
-                        // Sanitize data to prevent propagation of corrupt records
-                        setRecipes(parsedRecipes.filter(r => r && r.id));
-                    }
-                }
-
-                const localGroceryJSON = localStorage.getItem('family_grocery');
-                if (localGroceryJSON) {
-                    const parsedGrocery = JSON.parse(localGroceryJSON);
-                    if (Array.isArray(parsedGrocery)) {
-                        // Sanitize data to prevent propagation of corrupt records
-                        setGroceryList(parsedGrocery.filter(i => i && i.id));
-                    }
-                }
-            } catch (e) {
-                console.error("Failed to parse or sanitize data from localStorage:", e);
-                // If localStorage is corrupt, start with empty lists
-                setRecipes([]);
-                setGroceryList([]);
-            }
-        } finally {
-            setSyncInProgress(false);
-        }
-    };
-
-    // Central function to save data, with robust merging to prevent data loss.
-    const saveData = async (updatedRecipes: Recipe[], updatedGroceryList: GroceryListItem[]) => {
-        // 1. Optimistic UI update for a snappy experience
-        setRecipes(updatedRecipes);
-        setGroceryList(updatedGroceryList);
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        localStorage.setItem('family_grocery', JSON.stringify(updatedGroceryList));
+    // Generic function to save the full state, used for reordering and major updates.
+    const saveData = async (data: { recipes: Recipe[], groceryList: GroceryListItem[] }) => {
+        // Optimistic UI update
+        setRecipes(data.recipes);
+        setGroceryList(data.groceryList);
+        localStorage.setItem('family_recipes', JSON.stringify(data.recipes));
+        localStorage.setItem('family_grocery', JSON.stringify(data.groceryList));
 
         if (!isOnline) {
             console.warn("Offline. Changes saved locally and will sync later.");
             return;
         }
-        
-        setSyncInProgress(true);
+
         try {
-            // 2. Fetch latest server state before saving to prevent overwriting data.
-            const serverData = await apiSync.getData();
-
-            // 3. Merge server state with our intended optimistic updates.
-            const recipeMap = new Map();
-            (serverData.recipes || []).forEach(r => recipeMap.set(r.id, r));
-            updatedRecipes.forEach(r => recipeMap.set(r.id, r)); // Our changes take precedence
-
-            const groceryMap = new Map();
-            (serverData.groceryList || []).forEach(i => groceryMap.set(i.id, i));
-            updatedGroceryList.forEach(i => groceryMap.set(i.id, i)); // Our changes take precedence
-
-            const dataToSave = {
-                recipes: Array.from(recipeMap.values()),
-                groceryList: Array.from(groceryMap.values()),
-            };
-            
-            // 4. Call API with the fully merged data.
-            const mergedData = await apiSync.saveData(dataToSave);
-            
-            if (mergedData) {
-                // 5. Update state with the authoritative data from the server's final merge.
-                const finalRecipes = mergedData.recipes || [];
-                const finalGroceryList = mergedData.groceryList || [];
-                setRecipes(finalRecipes);
-                setGroceryList(finalGroceryList);
-                localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
-                localStorage.setItem('family_grocery', JSON.stringify(finalGroceryList));
-                setLastSyncTime(new Date());
-            } else {
-                 console.error('Sync failed. Local data is preserved.');
-            }
+            await apiSync.saveData(data);
+            setLastSyncTime(new Date());
         } catch (error) {
-            console.error('Failed to save to API:', error);
-        } finally {
-            setSyncInProgress(false);
+            console.error('Failed to save full data to API:', error);
+            // Data is already saved optimistically, so no need to revert here.
+            // The next sync will handle reconciliation.
         }
     };
 
-    // Manual sync for the UI button
+    // Load data on initial mount & handle auto-sync.
+    useEffect(() => {
+        const syncAndSchedule = async () => {
+            if (syncInProgress) return;
+            setSyncInProgress(true);
+
+            try {
+                const online = await apiSync.checkHealth();
+                setIsOnline(online);
+
+                if (online) {
+                    const serverData = await apiSync.getData();
+                    const localRecipesJSON = localStorage.getItem('family_recipes');
+                    const localGroceryJSON = localStorage.getItem('family_grocery');
+                    const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON) : [];
+                    const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON) : [];
+
+                    // Merge logic: Server is the base, local changes are layered on top.
+                    const recipeMap = new Map();
+                    (serverData.recipes || []).forEach(r => r && r.id && recipeMap.set(r.id, r));
+                    localRecipes.forEach((r: Recipe) => r && r.id && recipeMap.set(r.id, r));
+
+                    const groceryMap = new Map();
+                    (serverData.groceryList || []).forEach(i => i && i.id && groceryMap.set(i.id, i));
+                    localGrocery.forEach((i: GroceryListItem) => i && i.id && groceryMap.set(i.id, i));
+                    
+                    const finalRecipes = Array.from(recipeMap.values());
+                    const finalGrocery = Array.from(groceryMap.values());
+
+                    // If local and server were different, sync the merged state back up.
+                    if (JSON.stringify(finalRecipes) !== JSON.stringify(serverData.recipes) || JSON.stringify(finalGrocery) !== JSON.stringify(serverData.groceryList)) {
+                         await apiSync.saveData({ recipes: finalRecipes, groceryList: finalGrocery });
+                    }
+                    
+                    setRecipes(finalRecipes);
+                    setGroceryList(finalGrocery);
+                    localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
+                    localStorage.setItem('family_grocery', JSON.stringify(finalGrocery));
+                    setLastSyncTime(new Date());
+
+                } else {
+                    // Offline: load from local storage
+                    const localRecipesJSON = localStorage.getItem('family_recipes');
+                    if (localRecipesJSON) setRecipes(JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id));
+                    const localGroceryJSON = localStorage.getItem('family_grocery');
+                    if (localGroceryJSON) setGroceryList(JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id));
+                }
+            } catch (error) {
+                console.error("Error during sync:", error);
+                setIsOnline(false);
+            } finally {
+                setSyncInProgress(false);
+            }
+        };
+
+        syncAndSchedule(); // Initial load
+        const interval = setInterval(syncAndSchedule, 30000); // Auto-sync
+        
+        return () => clearInterval(interval);
+    }, []);
+
     const manualSync = () => {
-        loadData();
-    };
+        // This is now handled by the useEffect logic, just need to trigger a check
+        const event = new Event('online');
+        window.dispatchEvent(event);
+    }
 
     const playAlarm = () => {
         if (!audioContextRef.current) {
@@ -344,35 +276,46 @@ const App: React.FC = () => {
     
     const addRecipe = async (recipe: Recipe) => {
         const updatedRecipes = [recipe, ...recipes.filter(r => r.id !== recipe.id)];
-        
-        // This function handles the optimistic UI update, local storage, API sync,
-        // and updating state with the merged result from the server.
-        await saveData(updatedRecipes, groceryList);
-
-        // Navigate after the save operation is complete.
+        setRecipes(updatedRecipes);
+        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
         setCurrentScreen('recipes');
         setIsSearchOpen(false);
+        
+        if (isOnline) {
+            await apiSync.addRecipeOnly(recipe);
+        }
     };
 
     const updateRecipe = async (updatedRecipe: Recipe) => {
         const updatedRecipes = recipes.map(r => r.id === updatedRecipe.id ? updatedRecipe : r);
+        setRecipes(updatedRecipes);
+        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
         if (selectedRecipe?.id === updatedRecipe.id) {
             setSelectedRecipe(updatedRecipe);
         }
-        await saveData(updatedRecipes, groceryList);
+
+        if (isOnline) {
+             // This is an add/update operation
+            await apiSync.addRecipeOnly(updatedRecipe);
+        }
     };
 
     const deleteRecipe = async (id: string) => {
         const updatedRecipes = recipes.filter(r => r.id !== id);
+        setRecipes(updatedRecipes);
+        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+        
         if (selectedRecipe?.id === id) {
             setCurrentScreen('recipes');
             setSelectedRecipe(null);
         }
-        setRecipeToDelete(null); // Close confirmation modal
-        await saveData(updatedRecipes, groceryList);
+        setRecipeToDelete(null);
+
+        if(isOnline) {
+            await apiSync.deleteRecipe(id);
+        }
     };
     
-    // Helper to format quantity for grocery list items, consistent with detail view
     const getAdjustedQuantityString = (quantity?: number) => {
         if (quantity === undefined) return '';
         if (quantity % 1 === 0.5) return `${Math.floor(quantity) || ''} ½`;
@@ -386,29 +329,37 @@ const App: React.FC = () => {
         const ingredientString = `${ingredient.quantity ? `${getAdjustedQuantityString(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
         const existingItem = groceryList.find(item => item.name.toLowerCase() === ingredientString.toLowerCase());
 
-        let updatedList: GroceryListItem[];
         if (existingItem) {
-            updatedList = groceryList.filter(item => item.id !== existingItem.id);
+            await deleteGroceryItem(existingItem.id);
         } else {
-            const newItem: GroceryListItem = { id: crypto.randomUUID(), name: ingredientString, completed: false };
-            updatedList = [newItem, ...groceryList];
+            await addCustomGroceryItem(ingredientString);
         }
-        await saveData(recipes, updatedList);
     };
         
     const addCustomGroceryItem = async (name: string) => {
         const newItem: GroceryListItem = { id: crypto.randomUUID(), name, completed: false };
         const updatedItems = [newItem, ...groceryList];
-        await saveData(recipes, updatedItems);
+        setGroceryList(updatedItems);
+        localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
+        
+        if (isOnline) {
+            await apiSync.addGroceryItem(newItem);
+        }
     };
 
     const deleteGroceryItem = async (id: string) => {
         const updatedItems = groceryList.filter(item => item.id !== id);
-        await saveData(recipes, updatedItems);
+        setGroceryList(updatedItems);
+        localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
+        
+        if (isOnline) {
+            await apiSync.deleteGroceryItem(id);
+        }
     };
 
     const reorderGroceryItems = async (reorderedList: GroceryListItem[]) => {
-        await saveData(recipes, reorderedList);
+        // Reordering requires sending the full list
+        await saveData({ recipes, groceryList: reorderedList });
     };
 
     const renderScreen = () => {
