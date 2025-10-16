@@ -45,13 +45,10 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
         }
 
         setLoadingMessage("Génération de l'image...");
-        const rawImageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
-        
-        setLoadingMessage("Compression de l'image...");
-        const { base64: compressedBase64 } = await processImage(`data:image/jpeg;base64,${rawImageBase64}`);
+        const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
         
         const imageId = crypto.randomUUID();
-        await imageStore.saveImage(imageId, compressedBase64);
+        await imageStore.saveImage(imageId, imageBase64);
 
         const newRecipe: Recipe = {
             id: crypto.randomUUID(),
