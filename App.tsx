@@ -18,6 +18,8 @@ const App: React.FC = () => {
     const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
     const [groceryList, setGroceryList] = useState<GroceryListItem[]>([]);
+    const [deletedRecipeIds, setDeletedRecipeIds] = useState<string[]>([]);
+    const [deletedGroceryIds, setDeletedGroceryIds] = useState<string[]>([]);
 
     // Sync state
     const [isOnline, setIsOnline] = useState(false);
@@ -43,146 +45,94 @@ const App: React.FC = () => {
 
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
-    // Generic function to save the full state, used for reordering and major updates.
-    const saveData = async (data: { recipes: Recipe[], groceryList: GroceryListItem[] }) => {
-        // Optimistic UI update
+    const getFullLocalData = () => {
+        const localRecipesJSON = localStorage.getItem('family_recipes');
+        const localGroceryJSON = localStorage.getItem('family_grocery');
+        const localDeletedRecipesJSON = localStorage.getItem('family_deleted_recipes');
+        const localDeletedGroceryJSON = localStorage.getItem('family_deleted_grocery');
+
+        const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON) : [];
+        const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON) : [];
+        const localDeletedRecipes = localDeletedRecipesJSON ? JSON.parse(localDeletedRecipesJSON) : [];
+        const localDeletedGrocery = localDeletedGroceryJSON ? JSON.parse(localDeletedGroceryJSON) : [];
+        
+        return {
+            recipes: localRecipes.filter((r: Recipe) => r && r.id),
+            groceryList: localGrocery.filter((i: GroceryListItem) => i && i.id),
+            deletedRecipeIds: localDeletedRecipes,
+            deletedGroceryIds: localDeletedGrocery
+        };
+    };
+    
+    const setFullLocalData = (data: { recipes: Recipe[], groceryList: GroceryListItem[], deletedRecipeIds: string[], deletedGroceryIds: string[] }) => {
         setRecipes(data.recipes);
         setGroceryList(data.groceryList);
+        setDeletedRecipeIds(data.deletedRecipeIds);
+        setDeletedGroceryIds(data.deletedGroceryIds);
+
         localStorage.setItem('family_recipes', JSON.stringify(data.recipes));
         localStorage.setItem('family_grocery', JSON.stringify(data.groceryList));
+        localStorage.setItem('family_deleted_recipes', JSON.stringify(data.deletedRecipeIds));
+        localStorage.setItem('family_deleted_grocery', JSON.stringify(data.deletedGroceryIds));
+    };
 
-        if (!isOnline) {
-            console.warn("Offline. Changes saved locally and will sync later.");
-            return;
-        }
 
+    const syncData = async () => {
+        if (syncInProgress) return;
+        setSyncInProgress(true);
+    
         try {
-            await apiSync.saveData(data);
-            setLastSyncTime(new Date());
+            const online = await apiSync.checkHealth();
+            setIsOnline(online);
+    
+            const localData = getFullLocalData();
+    
+            if (online) {
+                const finalData = await apiSync.saveData(localData);
+    
+                if (finalData) {
+                    // FIX: Provide default empty arrays for optional deleted ID lists from the API to match the required type of setFullLocalData.
+                    setFullLocalData({
+                        ...finalData,
+                        deletedRecipeIds: finalData.deletedRecipeIds || [],
+                        deletedGroceryIds: finalData.deletedGroceryIds || [],
+                    });
+                    setLastSyncTime(new Date());
+                } else {
+                    setIsOnline(false);
+                    setFullLocalData(localData); // Fallback to local
+                    console.warn("Sync POST failed, falling back to local data.");
+                }
+            } else {
+                setFullLocalData(localData); // We are offline, use local data
+            }
         } catch (error) {
-            console.error('Failed to save full data to API:', error);
-            // Data is already saved optimistically, so no need to revert here.
-            // The next sync will handle reconciliation.
+            console.error("Error during sync:", error);
+            setIsOnline(false);
+            const localData = getFullLocalData();
+            setFullLocalData(localData); // On any error, ensure app is usable with local data
+        } finally {
+            setSyncInProgress(false);
         }
     };
 
     // Load data on initial mount & handle auto-sync.
     useEffect(() => {
-        const syncAndSchedule = async () => {
-            if (syncInProgress) return;
-            setSyncInProgress(true);
-        
-            try {
-                const online = await apiSync.checkHealth();
-                setIsOnline(online);
-        
-                // Always load local data first as a fallback and for sending to the server.
-                const localRecipesJSON = localStorage.getItem('family_recipes');
-                const localGroceryJSON = localStorage.getItem('family_grocery');
-                const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id) : [];
-                const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id) : [];
-        
-                if (online) {
-                    // Send local data to be merged by the server. The server returns the canonical state.
-                    // This prevents race conditions between multiple clients.
-                    const finalData = await apiSync.saveData({ recipes: localRecipes, groceryList: localGrocery });
-        
-                    if (finalData) {
-                        // The server successfully merged and returned the new source of truth.
-                        const finalRecipes = finalData.recipes || [];
-                        const finalGrocery = finalData.groceryList || [];
-        
-                        setRecipes(finalRecipes);
-                        setGroceryList(finalGrocery);
-                        localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
-                        localStorage.setItem('family_grocery', JSON.stringify(finalGrocery));
-                        setLastSyncTime(new Date());
-                    } else {
-                        // The sync call failed, so we're effectively offline. Fall back to local data.
-                        setIsOnline(false);
-                        setRecipes(localRecipes);
-                        setGroceryList(localGrocery);
-                        console.warn("Sync POST failed, falling back to local data.");
-                    }
-                } else {
-                    // We are offline, so just use the local data.
-                    setRecipes(localRecipes);
-                    setGroceryList(localGrocery);
-                }
-            } catch (error) {
-                console.error("Error during sync:", error);
-                setIsOnline(false);
-                // On any error, fall back to loading local data to ensure the app is usable.
-                const localRecipesJSON = localStorage.getItem('family_recipes');
-                if (localRecipesJSON) setRecipes(JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id));
-                const localGroceryJSON = localStorage.getItem('family_grocery');
-                if (localGroceryJSON) setGroceryList(JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id));
-            } finally {
-                setSyncInProgress(false);
-            }
-        };
+        // Load local data immediately for a fast start
+        const localData = getFullLocalData();
+        setFullLocalData(localData);
 
-        syncAndSchedule(); // Initial load
-        const interval = setInterval(syncAndSchedule, 30000); // Auto-sync
+        // Then, start the sync process
+        syncData(); 
+        const interval = setInterval(syncData, 30000); // Auto-sync
         
-        // Add event listener for online/offline status to trigger sync immediately
-        const handleOnline = () => syncAndSchedule();
-        window.addEventListener('online', handleOnline);
+        window.addEventListener('online', syncData);
 
         return () => {
             clearInterval(interval);
-            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('online', syncData);
         };
     }, []); // Empty dependency array ensures this runs only once on mount
-
-    const manualSync = () => {
-        const syncAndSchedule = async () => {
-            if (syncInProgress) return;
-            setSyncInProgress(true);
-        
-            try {
-                const online = await apiSync.checkHealth();
-                setIsOnline(online);
-        
-                const localRecipesJSON = localStorage.getItem('family_recipes');
-                const localGroceryJSON = localStorage.getItem('family_grocery');
-                const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id) : [];
-                const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id) : [];
-        
-                if (online) {
-                    const finalData = await apiSync.saveData({ recipes: localRecipes, groceryList: localGrocery });
-        
-                    if (finalData) {
-                        const finalRecipes = finalData.recipes || [];
-                        const finalGrocery = finalData.groceryList || [];
-        
-                        setRecipes(finalRecipes);
-                        setGroceryList(finalGrocery);
-                        localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
-                        localStorage.setItem('family_grocery', JSON.stringify(finalGrocery));
-                        setLastSyncTime(new Date());
-                    } else {
-                        setIsOnline(false);
-                        setRecipes(localRecipes);
-                        setGroceryList(localGrocery);
-                    }
-                } else {
-                    setRecipes(localRecipes);
-                    setGroceryList(localGrocery);
-                }
-            } catch (error) {
-                console.error("Error during manual sync:", error);
-                setIsOnline(false);
-                const localRecipesJSON = localStorage.getItem('family_recipes');
-                if (localRecipesJSON) setRecipes(JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id));
-                const localGroceryJSON = localStorage.getItem('family_grocery');
-                if (localGroceryJSON) setGroceryList(JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id));
-            } finally {
-                setSyncInProgress(false);
-            }
-        };
-        syncAndSchedule();
-    }
 
     const playAlarm = () => {
         if (!audioContextRef.current) {
@@ -330,7 +280,6 @@ const App: React.FC = () => {
         localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
         setCurrentScreen('recipes');
         setIsSearchOpen(false);
-        // API call removed, will be handled by periodic sync
     };
 
     const updateRecipe = (updatedRecipe: Recipe) => {
@@ -340,20 +289,23 @@ const App: React.FC = () => {
         if (selectedRecipe?.id === updatedRecipe.id) {
             setSelectedRecipe(updatedRecipe);
         }
-        // API call removed, will be handled by periodic sync
     };
 
     const deleteRecipe = (id: string) => {
         const updatedRecipes = recipes.filter(r => r.id !== id);
+        const updatedDeletedIds = [...new Set([...deletedRecipeIds, id])];
+        
         setRecipes(updatedRecipes);
+        setDeletedRecipeIds(updatedDeletedIds);
+        
         localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+        localStorage.setItem('family_deleted_recipes', JSON.stringify(updatedDeletedIds));
         
         if (selectedRecipe?.id === id) {
             setCurrentScreen('recipes');
             setSelectedRecipe(null);
         }
         setRecipeToDelete(null);
-        // API call removed, will be handled by periodic sync
     };
     
     const getAdjustedQuantityString = (quantity?: number) => {
@@ -381,19 +333,22 @@ const App: React.FC = () => {
         const updatedItems = [newItem, ...groceryList];
         setGroceryList(updatedItems);
         localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-        // API call removed, will be handled by periodic sync
     };
 
     const deleteGroceryItem = (id: string) => {
         const updatedItems = groceryList.filter(item => item.id !== id);
+        const updatedDeletedIds = [...new Set([...deletedGroceryIds, id])];
+        
         setGroceryList(updatedItems);
+        setDeletedGroceryIds(updatedDeletedIds);
+
         localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-        // API call removed, will be handled by periodic sync
+        localStorage.setItem('family_deleted_grocery', JSON.stringify(updatedDeletedIds));
     };
 
-    const reorderGroceryItems = async (reorderedList: GroceryListItem[]) => {
-        // Reordering requires sending the full list, so saveData is appropriate here.
-        await saveData({ recipes, groceryList: reorderedList });
+    const reorderGroceryItems = (reorderedList: GroceryListItem[]) => {
+        setGroceryList(reorderedList);
+        localStorage.setItem('family_grocery', JSON.stringify(reorderedList));
     };
 
     const renderScreen = () => {
@@ -469,7 +424,7 @@ const App: React.FC = () => {
                             <span>Hors ligne</span>
                         </div>
                         <button 
-                            onClick={manualSync}
+                            onClick={syncData}
                             className="text-blue-500 underline mt-1 block"
                         >
                             Réessayer
