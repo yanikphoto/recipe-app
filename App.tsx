@@ -396,42 +396,31 @@ const App: React.FC = () => {
         }
     };
 
+    const isDetailScreen = currentScreen === 'recipe-detail';
+    const positionClasses = isDetailScreen ? 'top-5 left-16' : 'top-5 right-5';
+
+    const statusIndicator = (
+        <div className={`fixed z-50 ${positionClasses}`}>
+            {syncInProgress ? (
+                <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Synchronisation en cours...">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
+                </div>
+            ) : isOnline ? (
+                <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="En ligne">
+                    <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+                </div>
+            ) : (
+                <button onClick={syncData} className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Hors ligne. Cliquez pour réessayer.">
+                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
+                </button>
+            )}
+        </div>
+    );
+
     return (
         <div className="max-w-lg mx-auto font-sans bg-[#F9F9F5] min-h-screen">
             {/* Sync Status Indicator */}
-            <div className="fixed top-4 right-4 bg-white rounded-lg shadow-md p-3 text-xs z-50">
-                {syncInProgress ? (
-                    <div className="flex items-center gap-2 text-blue-500">
-                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
-                        <span>Synchronisation...</span>
-                    </div>
-                ) : isOnline ? (
-                    <div>
-                        <div className="flex items-center gap-2 text-green-500">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span>En ligne</span>
-                        </div>
-                        {lastSyncTime && (
-                            <div className="text-gray-500 mt-1">
-                                {lastSyncTime.toLocaleTimeString()}
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    <div>
-                        <div className="flex items-center gap-2 text-red-500">
-                            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                            <span>Hors ligne</span>
-                        </div>
-                        <button 
-                            onClick={syncData}
-                            className="text-blue-500 underline mt-1 block"
-                        >
-                            Réessayer
-                        </button>
-                    </div>
-                )}
-            </div>
+            {statusIndicator}
 
             <main>{renderScreen()}</main>
             <BottomNav activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
