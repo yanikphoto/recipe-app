@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Recipe, Ingredient, GroceryListItem } from '../types';
 import AddCategoryModal from './AddCategoryModal';
 import ChangeImageModal from './ChangeImageModal';
+import StoredImage from './StoredImage';
 import { DEFAULT_CATEGORIES } from '../constants';
 
 type RecipeDetailScreenProps = {
@@ -204,7 +205,11 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     <>
     <div className="bg-[#F9F9F5] min-h-screen">
       <div className="relative h-80">
-        <img src={isEditing ? editableRecipe.imageUrl : recipe.imageUrl} alt={isEditing ? editableRecipe.title : recipe.title} className="absolute inset-0 w-full h-full object-cover" />
+        {isEditing && editableRecipe.imageUrl.startsWith('data:') ? (
+            <img src={editableRecipe.imageUrl} alt={editableRecipe.title} className="absolute inset-0 w-full h-full object-cover" />
+        ) : (
+            <StoredImage imageId={isEditing ? editableRecipe.imageUrl : recipe.imageUrl} alt={isEditing ? editableRecipe.title : recipe.title} className="absolute inset-0 w-full h-full object-cover" />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
 
         <div className="absolute top-4 left-4">

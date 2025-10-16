@@ -1,18 +1,10 @@
 import React, { useRef } from 'react';
+import { fileToDataUrl, processImage } from '../services/imageUtils';
 
 type ChangeImageModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onImageSelected: (base64Image: string) => void;
-};
-
-const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = error => reject(error);
-    });
 };
 
 const ChangeImageModal: React.FC<ChangeImageModalProps> = ({ isOpen, onClose, onImageSelected }) => {
@@ -23,10 +15,11 @@ const ChangeImageModal: React.FC<ChangeImageModalProps> = ({ isOpen, onClose, on
     const file = event.target.files?.[0];
     if (file) {
       try {
-        const base64 = await fileToBase64(file);
-        onImageSelected(base64);
+        const dataUrl = await fileToDataUrl(file);
+        const { dataUrl: processedDataUrl } = await processImage(dataUrl);
+        onImageSelected(processedDataUrl);
       } catch (error) {
-        console.error("Error converting file to base64", error);
+        console.error("Error processing file", error);
         // Optionally show an error to the user here
       }
     }

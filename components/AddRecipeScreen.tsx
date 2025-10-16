@@ -1,65 +1,16 @@
-
-
 import React, { useState, useRef } from 'react';
 import { Screen, Recipe } from '../types';
 import { parseRecipeFromImage, parseRecipeFromUrl, generateImageFromPrompt } from '../services/geminiService';
+import { imageStore } from '../services/imageStore';
+import { processImage, fileToDataUrl } from '../services/imageUtils';
 import Spinner from './Spinner';
 
-const fileToGenerativePart = (file: File): Promise<{ inlineData: { data: string; mimeType: string; } }> => {
-  const MAX_DIMENSION = 1024; // Max width or height for the image
-  const TARGET_MIME_TYPE = 'image/jpeg';
-  const IMAGE_QUALITY = 0.8; // 80% quality for JPEG compression
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (!event.target?.result) {
-        return reject(new Error("FileReader failed to read file."));
-      }
-      
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-
-        // Calculate the new dimensions
-        if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-          if (width > height) {
-            height = Math.round((height * MAX_DIMENSION) / width);
-            width = MAX_DIMENSION;
-          } else {
-            width = Math.round((width * MAX_DIMENSION) / height);
-            height = MAX_DIMENSION;
-          }
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          return reject(new Error("Could not create canvas context."));
-        }
-        
-        ctx.drawImage(img, 0, 0, width, height);
-
-        const dataUrl = canvas.toDataURL(TARGET_MIME_TYPE, IMAGE_QUALITY);
-        const base64EncodedData = dataUrl.split(',')[1];
-        
-        if (!base64EncodedData) {
-            return reject(new Error("Could not extract base64 data from canvas."));
-        }
-
-        resolve({
-          inlineData: { data: base64EncodedData, mimeType: TARGET_MIME_TYPE },
-        });
-      };
-      
-      img.onerror = (error) => reject(new Error(`Image failed to load: ${error}`));
-      img.src = event.target.result as string;
-    };
-    reader.onerror = (error) => reject(new Error(`FileReader error: ${error}`));
-    reader.readAsDataURL(file);
-  });
+const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string; } }> => {
+  const dataUrl = await fileToDataUrl(file);
+  const { base64 } = await processImage(dataUrl);
+  return {
+    inlineData: { data: base64, mimeType: 'image/jpeg' },
+  };
 };
 
 const OptionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void }> = ({ icon, label, onClick }) => (
@@ -94,12 +45,17 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
         }
 
         setLoadingMessage("Génération de l'image...");
-        const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
-        const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
+        const rawImageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
+        
+        setLoadingMessage("Compression de l'image...");
+        const { base64: compressedBase64 } = await processImage(`data:image/jpeg;base64,${rawImageBase64}`);
+        
+        const imageId = crypto.randomUUID();
+        await imageStore.saveImage(imageId, compressedBase64);
 
         const newRecipe: Recipe = {
             id: crypto.randomUUID(),
-            imageUrl: imageUrl,
+            imageUrl: imageId,
             title: parsedData.title,
             categories: parsedData.categories || [],
             servings: parsedData.servings || 1,

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
 import { apiSync } from './services/apiSync';
+import { imageStore } from './services/imageStore';
 import WelcomeScreen from './components/WelcomeScreen';
 import AddRecipeScreen from './components/AddRecipeScreen';
 import RecipeListScreen from './components/RecipeListScreen';
@@ -70,10 +71,15 @@ const App: React.FC = () => {
         setDeletedRecipeIds(data.deletedRecipeIds);
         setDeletedGroceryIds(data.deletedGroceryIds);
 
-        localStorage.setItem('family_recipes', JSON.stringify(data.recipes));
-        localStorage.setItem('family_grocery', JSON.stringify(data.groceryList));
-        localStorage.setItem('family_deleted_recipes', JSON.stringify(data.deletedRecipeIds));
-        localStorage.setItem('family_deleted_grocery', JSON.stringify(data.deletedGroceryIds));
+        try {
+            localStorage.setItem('family_recipes', JSON.stringify(data.recipes));
+            localStorage.setItem('family_grocery', JSON.stringify(data.groceryList));
+            localStorage.setItem('family_deleted_recipes', JSON.stringify(data.deletedRecipeIds));
+            localStorage.setItem('family_deleted_grocery', JSON.stringify(data.deletedGroceryIds));
+        } catch (error) {
+            console.error("Could not write to localStorage:", error);
+            // Optionally, inform the user that their data might not be saved.
+        }
     };
 
 
@@ -91,7 +97,6 @@ const App: React.FC = () => {
                 const finalData = await apiSync.saveData(localData);
     
                 if (finalData) {
-                    // FIX: Provide default empty arrays for optional deleted ID lists from the API to match the required type of setFullLocalData.
                     setFullLocalData({
                         ...finalData,
                         deletedRecipeIds: finalData.deletedRecipeIds || [],
@@ -118,21 +123,51 @@ const App: React.FC = () => {
 
     // Load data on initial mount & handle auto-sync.
     useEffect(() => {
-        // Load local data immediately for a fast start
-        const localData = getFullLocalData();
-        setFullLocalData(localData);
+        let intervalId: number;
+        const onlineHandler = () => syncData();
 
-        // Then, start the sync process
-        syncData(); 
-        const interval = setInterval(syncData, 30000); // Auto-sync
-        
-        window.addEventListener('online', syncData);
+        const initApp = async () => {
+            // 1. Load local data
+            const localData = getFullLocalData();
+
+            // 2. Perform one-time migration for existing base64 images
+            let needsUpdate = false;
+            const migratedRecipes = await Promise.all(
+                localData.recipes.map(async (recipe) => {
+                    if (recipe.imageUrl && recipe.imageUrl.startsWith('data:image')) {
+                        try {
+                            const newImageId = crypto.randomUUID();
+                            const base64Data = recipe.imageUrl.split(',')[1];
+                            if (base64Data) {
+                                await imageStore.saveImage(newImageId, base64Data);
+                                needsUpdate = true;
+                                return { ...recipe, imageUrl: newImageId };
+                            }
+                        } catch (error) {
+                            console.error(`Failed to migrate image for recipe: ${recipe.title}`, error);
+                        }
+                    }
+                    return recipe;
+                })
+            );
+
+            // 3. Update local storage and state
+            const currentData = { ...localData, recipes: migratedRecipes };
+            setFullLocalData(currentData);
+            
+            // 4. Start sync process
+            await syncData(); // Initial sync
+            intervalId = window.setInterval(syncData, 30000);
+            window.addEventListener('online', onlineHandler);
+        };
+
+        initApp();
 
         return () => {
-            clearInterval(interval);
-            window.removeEventListener('online', syncData);
+            if (intervalId) clearInterval(intervalId);
+            window.removeEventListener('online', onlineHandler);
         };
-    }, []); // Empty dependency array ensures this runs only once on mount
+    }, []);
 
     const playAlarm = () => {
         if (!audioContextRef.current) {
@@ -282,16 +317,44 @@ const App: React.FC = () => {
         setIsSearchOpen(false);
     };
 
-    const updateRecipe = (updatedRecipe: Recipe) => {
-        const updatedRecipes = recipes.map(r => r.id === updatedRecipe.id ? updatedRecipe : r);
+    const updateRecipe = async (updatedRecipe: Recipe) => {
+        let finalRecipe = { ...updatedRecipe };
+        const originalRecipe = recipes.find(r => r.id === updatedRecipe.id);
+        
+        // Check if the image has changed. New images will be base64.
+        if (originalRecipe && updatedRecipe.imageUrl !== originalRecipe.imageUrl && updatedRecipe.imageUrl.startsWith('data:image')) {
+            try {
+                const newImageId = crypto.randomUUID();
+                const base64Data = updatedRecipe.imageUrl.split(',')[1];
+                if (!base64Data) throw new Error("Invalid base64 string");
+
+                await imageStore.saveImage(newImageId, base64Data);
+
+                if (originalRecipe.imageUrl && !originalRecipe.imageUrl.startsWith('data:') && !originalRecipe.imageUrl.startsWith('http')) {
+                    await imageStore.deleteImage(originalRecipe.imageUrl);
+                }
+                
+                finalRecipe.imageUrl = newImageId;
+            } catch (error) {
+                console.error("Failed to update image in IndexedDB", error);
+                finalRecipe.imageUrl = originalRecipe.imageUrl;
+            }
+        }
+    
+        const updatedRecipes = recipes.map(r => r.id === finalRecipe.id ? finalRecipe : r);
         setRecipes(updatedRecipes);
         localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        if (selectedRecipe?.id === updatedRecipe.id) {
-            setSelectedRecipe(updatedRecipe);
+        if (selectedRecipe?.id === finalRecipe.id) {
+            setSelectedRecipe(finalRecipe);
         }
     };
 
     const deleteRecipe = (id: string) => {
+        const recipeToDelete = recipes.find(r => r.id === id);
+        if (recipeToDelete && recipeToDelete.imageUrl && !recipeToDelete.imageUrl.startsWith('http') && !recipeToDelete.imageUrl.startsWith('data:')) {
+            imageStore.deleteImage(recipeToDelete.imageUrl).catch(err => console.error("Failed to delete image from DB:", err));
+        }
+
         const updatedRecipes = recipes.filter(r => r.id !== id);
         const updatedDeletedIds = [...new Set([...deletedRecipeIds, id])];
         

@@ -1,6 +1,7 @@
 // FIX: Replace placeholder with a functional RecipeListScreen component.
 import React from 'react';
 import { Recipe } from '../types';
+import StoredImage from './StoredImage';
 
 type RecipeListScreenProps = {
   recipes: Recipe[];
@@ -19,7 +20,7 @@ type RecipeCardProps = {
 const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onSelect, onDelete }) => (
     <div className="bg-white rounded-2xl shadow-md overflow-hidden transform hover:scale-105 transition-transform duration-200" onClick={onSelect}>
         <div className="relative">
-            <img src={recipe.imageUrl} alt={recipe.title} className="w-full h-40 object-cover" />
+            <StoredImage imageId={recipe.imageUrl} alt={recipe.title} className="w-full h-40 object-cover" />
             <button
                 onClick={(e) => {
                     e.stopPropagation();
