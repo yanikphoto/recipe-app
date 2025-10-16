@@ -71,61 +71,52 @@ const App: React.FC = () => {
         const syncAndSchedule = async () => {
             if (syncInProgress) return;
             setSyncInProgress(true);
-
+        
             try {
                 const online = await apiSync.checkHealth();
                 setIsOnline(online);
-
+        
+                // Always load local data first as a fallback and for sending to the server.
+                const localRecipesJSON = localStorage.getItem('family_recipes');
+                const localGroceryJSON = localStorage.getItem('family_grocery');
+                const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id) : [];
+                const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id) : [];
+        
                 if (online) {
-                    const serverData = await apiSync.getData();
-                    const localRecipesJSON = localStorage.getItem('family_recipes');
-                    const localGroceryJSON = localStorage.getItem('family_grocery');
-                    let localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON) : [];
-                    let localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON) : [];
-
-                    // CRITICAL FIX: Process deletions first. Remove items from local state that the server says are deleted.
-                    if (serverData.deletedRecipeIds && serverData.deletedRecipeIds.length > 0) {
-                        const deletedRecipeIds = new Set(serverData.deletedRecipeIds);
-                        localRecipes = localRecipes.filter((r: Recipe) => r && r.id && !deletedRecipeIds.has(r.id));
+                    // Send local data to be merged by the server. The server returns the canonical state.
+                    // This prevents race conditions between multiple clients.
+                    const finalData = await apiSync.saveData({ recipes: localRecipes, groceryList: localGrocery });
+        
+                    if (finalData) {
+                        // The server successfully merged and returned the new source of truth.
+                        const finalRecipes = finalData.recipes || [];
+                        const finalGrocery = finalData.groceryList || [];
+        
+                        setRecipes(finalRecipes);
+                        setGroceryList(finalGrocery);
+                        localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
+                        localStorage.setItem('family_grocery', JSON.stringify(finalGrocery));
+                        setLastSyncTime(new Date());
+                    } else {
+                        // The sync call failed, so we're effectively offline. Fall back to local data.
+                        setIsOnline(false);
+                        setRecipes(localRecipes);
+                        setGroceryList(localGrocery);
+                        console.warn("Sync POST failed, falling back to local data.");
                     }
-                    if (serverData.deletedGroceryIds && serverData.deletedGroceryIds.length > 0) {
-                        const deletedGroceryIds = new Set(serverData.deletedGroceryIds);
-                        localGrocery = localGrocery.filter((i: GroceryListItem) => i && i.id && !deletedGroceryIds.has(i.id));
-                    }
-
-                    // Merge logic: Server is the base, local changes are layered on top.
-                    const recipeMap = new Map();
-                    (serverData.recipes || []).forEach(r => r && r.id && recipeMap.set(r.id, r));
-                    localRecipes.forEach((r: Recipe) => r && r.id && recipeMap.set(r.id, r));
-
-                    const groceryMap = new Map();
-                    (serverData.groceryList || []).forEach(i => i && i.id && groceryMap.set(i.id, i));
-                    localGrocery.forEach((i: GroceryListItem) => i && i.id && groceryMap.set(i.id, i));
-                    
-                    const finalRecipes = Array.from(recipeMap.values());
-                    const finalGrocery = Array.from(groceryMap.values());
-
-                    // If local and server were different, sync the merged state back up.
-                    if (JSON.stringify(finalRecipes) !== JSON.stringify(serverData.recipes) || JSON.stringify(finalGrocery) !== JSON.stringify(serverData.groceryList)) {
-                         await apiSync.saveData({ recipes: finalRecipes, groceryList: finalGrocery });
-                    }
-                    
-                    setRecipes(finalRecipes);
-                    setGroceryList(finalGrocery);
-                    localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
-                    localStorage.setItem('family_grocery', JSON.stringify(finalGrocery));
-                    setLastSyncTime(new Date());
-
                 } else {
-                    // Offline: load from local storage
-                    const localRecipesJSON = localStorage.getItem('family_recipes');
-                    if (localRecipesJSON) setRecipes(JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id));
-                    const localGroceryJSON = localStorage.getItem('family_grocery');
-                    if (localGroceryJSON) setGroceryList(JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id));
+                    // We are offline, so just use the local data.
+                    setRecipes(localRecipes);
+                    setGroceryList(localGrocery);
                 }
             } catch (error) {
                 console.error("Error during sync:", error);
                 setIsOnline(false);
+                // On any error, fall back to loading local data to ensure the app is usable.
+                const localRecipesJSON = localStorage.getItem('family_recipes');
+                if (localRecipesJSON) setRecipes(JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id));
+                const localGroceryJSON = localStorage.getItem('family_grocery');
+                if (localGroceryJSON) setGroceryList(JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id));
             } finally {
                 setSyncInProgress(false);
             }
