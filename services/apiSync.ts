@@ -1,6 +1,6 @@
 import { Recipe, GroceryListItem } from '../types';
 
-const API_BASE_URL = 'https://recipe-app-backend-pt4u.onrender.com/api';
+const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
 
 interface AppData {
   recipes: Recipe[];
