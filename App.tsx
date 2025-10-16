@@ -125,13 +125,63 @@ const App: React.FC = () => {
         syncAndSchedule(); // Initial load
         const interval = setInterval(syncAndSchedule, 30000); // Auto-sync
         
-        return () => clearInterval(interval);
-    }, []);
+        // Add event listener for online/offline status to trigger sync immediately
+        const handleOnline = () => syncAndSchedule();
+        window.addEventListener('online', handleOnline);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('online', handleOnline);
+        };
+    }, []); // Empty dependency array ensures this runs only once on mount
 
     const manualSync = () => {
-        // This is now handled by the useEffect logic, just need to trigger a check
-        const event = new Event('online');
-        window.dispatchEvent(event);
+        const syncAndSchedule = async () => {
+            if (syncInProgress) return;
+            setSyncInProgress(true);
+        
+            try {
+                const online = await apiSync.checkHealth();
+                setIsOnline(online);
+        
+                const localRecipesJSON = localStorage.getItem('family_recipes');
+                const localGroceryJSON = localStorage.getItem('family_grocery');
+                const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id) : [];
+                const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id) : [];
+        
+                if (online) {
+                    const finalData = await apiSync.saveData({ recipes: localRecipes, groceryList: localGrocery });
+        
+                    if (finalData) {
+                        const finalRecipes = finalData.recipes || [];
+                        const finalGrocery = finalData.groceryList || [];
+        
+                        setRecipes(finalRecipes);
+                        setGroceryList(finalGrocery);
+                        localStorage.setItem('family_recipes', JSON.stringify(finalRecipes));
+                        localStorage.setItem('family_grocery', JSON.stringify(finalGrocery));
+                        setLastSyncTime(new Date());
+                    } else {
+                        setIsOnline(false);
+                        setRecipes(localRecipes);
+                        setGroceryList(localGrocery);
+                    }
+                } else {
+                    setRecipes(localRecipes);
+                    setGroceryList(localGrocery);
+                }
+            } catch (error) {
+                console.error("Error during manual sync:", error);
+                setIsOnline(false);
+                const localRecipesJSON = localStorage.getItem('family_recipes');
+                if (localRecipesJSON) setRecipes(JSON.parse(localRecipesJSON).filter((r: Recipe) => r && r.id));
+                const localGroceryJSON = localStorage.getItem('family_grocery');
+                if (localGroceryJSON) setGroceryList(JSON.parse(localGroceryJSON).filter((i: GroceryListItem) => i && i.id));
+            } finally {
+                setSyncInProgress(false);
+            }
+        };
+        syncAndSchedule();
     }
 
     const playAlarm = () => {
@@ -274,33 +324,26 @@ const App: React.FC = () => {
         setIsSearchOpen(false);
     };
     
-    const addRecipe = async (recipe: Recipe) => {
+    const addRecipe = (recipe: Recipe) => {
         const updatedRecipes = [recipe, ...recipes.filter(r => r.id !== recipe.id)];
         setRecipes(updatedRecipes);
         localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
         setCurrentScreen('recipes');
         setIsSearchOpen(false);
-        
-        if (isOnline) {
-            await apiSync.addRecipeOnly(recipe);
-        }
+        // API call removed, will be handled by periodic sync
     };
 
-    const updateRecipe = async (updatedRecipe: Recipe) => {
+    const updateRecipe = (updatedRecipe: Recipe) => {
         const updatedRecipes = recipes.map(r => r.id === updatedRecipe.id ? updatedRecipe : r);
         setRecipes(updatedRecipes);
         localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
         if (selectedRecipe?.id === updatedRecipe.id) {
             setSelectedRecipe(updatedRecipe);
         }
-
-        if (isOnline) {
-             // This is an add/update operation
-            await apiSync.addRecipeOnly(updatedRecipe);
-        }
+        // API call removed, will be handled by periodic sync
     };
 
-    const deleteRecipe = async (id: string) => {
+    const deleteRecipe = (id: string) => {
         const updatedRecipes = recipes.filter(r => r.id !== id);
         setRecipes(updatedRecipes);
         localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
@@ -310,10 +353,7 @@ const App: React.FC = () => {
             setSelectedRecipe(null);
         }
         setRecipeToDelete(null);
-
-        if(isOnline) {
-            await apiSync.deleteRecipe(id);
-        }
+        // API call removed, will be handled by periodic sync
     };
     
     const getAdjustedQuantityString = (quantity?: number) => {
@@ -325,40 +365,34 @@ const App: React.FC = () => {
         return String(quantity);
     };
 
-    const toggleGroceryItemFromIngredient = async (ingredient: Ingredient) => {
+    const toggleGroceryItemFromIngredient = (ingredient: Ingredient) => {
         const ingredientString = `${ingredient.quantity ? `${getAdjustedQuantityString(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
         const existingItem = groceryList.find(item => item.name.toLowerCase() === ingredientString.toLowerCase());
 
         if (existingItem) {
-            await deleteGroceryItem(existingItem.id);
+            deleteGroceryItem(existingItem.id);
         } else {
-            await addCustomGroceryItem(ingredientString);
+            addCustomGroceryItem(ingredientString);
         }
     };
         
-    const addCustomGroceryItem = async (name: string) => {
+    const addCustomGroceryItem = (name: string) => {
         const newItem: GroceryListItem = { id: crypto.randomUUID(), name, completed: false };
         const updatedItems = [newItem, ...groceryList];
         setGroceryList(updatedItems);
         localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-        
-        if (isOnline) {
-            await apiSync.addGroceryItem(newItem);
-        }
+        // API call removed, will be handled by periodic sync
     };
 
-    const deleteGroceryItem = async (id: string) => {
+    const deleteGroceryItem = (id: string) => {
         const updatedItems = groceryList.filter(item => item.id !== id);
         setGroceryList(updatedItems);
         localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-        
-        if (isOnline) {
-            await apiSync.deleteGroceryItem(id);
-        }
+        // API call removed, will be handled by periodic sync
     };
 
     const reorderGroceryItems = async (reorderedList: GroceryListItem[]) => {
-        // Reordering requires sending the full list
+        // Reordering requires sending the full list, so saveData is appropriate here.
         await saveData({ recipes, groceryList: reorderedList });
     };
 
