@@ -97,6 +97,19 @@ const App: React.FC = () => {
                 const finalData = await apiSync.saveData(localData);
     
                 if (finalData) {
+                    // Process incoming images
+                    for (const recipe of finalData.recipes) {
+                        if (recipe.imageBase64) {
+                            try {
+                                await imageStore.saveImage(recipe.imageUrl, recipe.imageBase64);
+                            } catch (error) {
+                                console.error(`Failed to save synced image for recipe ${recipe.id}`, error);
+                            }
+                            // Clean up the recipe object before storing it locally to save space
+                            delete recipe.imageBase64;
+                        }
+                    }
+
                     setFullLocalData({
                         ...finalData,
                         deletedRecipeIds: finalData.deletedRecipeIds || [],

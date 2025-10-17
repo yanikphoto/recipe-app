@@ -14,6 +14,7 @@ export type Recipe = {
   ingredients: Ingredient[];
   instructions: string[];
   servings: number;
+  imageBase64?: string;
 };
 
 export type GroceryListItem = {
@@ -23,3 +24,11 @@ export type GroceryListItem = {
 };
 
 export type Screen = 'welcome' | 'recipes' | 'add' | 'search' | 'list' | 'recipe-detail' | 'timer';
+
+export type AppData = {
+  recipes: Recipe[];
+  groceryList: GroceryListItem[];
+  lastUpdated?: string;
+  deletedRecipeIds?: string[];
+  deletedGroceryIds?: string[];
+};
