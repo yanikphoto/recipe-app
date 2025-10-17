@@ -1,14 +1,7 @@
-import { Recipe, GroceryListItem } from '../types';
+import { Recipe, GroceryListItem, AppData } from '../types';
+import { imageStore } from './imageStore';
 
 const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
-
-interface AppData {
-  recipes: Recipe[];
-  groceryList: GroceryListItem[];
-  lastUpdated?: string;
-  deletedRecipeIds?: string[];
-  deletedGroceryIds?: string[];
-}
 
 export const apiSync = {
   async getData(): Promise<AppData> {
@@ -24,10 +17,35 @@ export const apiSync = {
 
   async saveData(data: AppData): Promise<AppData | null> {
     try {
+        const payload: AppData = JSON.parse(JSON.stringify(data));
+
+        for (const recipe of payload.recipes) {
+            const isLocalImage = recipe.imageUrl && !recipe.imageUrl.startsWith('data:') && !recipe.imageUrl.startsWith('http');
+            if (isLocalImage) {
+                try {
+                    const blob = await imageStore.getImage(recipe.imageUrl);
+                    if (blob) {
+                        const base64 = await new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const result = reader.result as string;
+                                resolve(result.split(',')[1]);
+                            };
+                            reader.onerror = reject;
+                            reader.readAsDataURL(blob);
+                        });
+                        recipe.imageBase64 = base64;
+                    }
+                } catch (e) {
+                    console.error(`Could not load image ${recipe.imageUrl} from local store for sync.`, e);
+                }
+            }
+        }
+
       const response = await fetch(`${API_BASE_URL}/data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
         cache: 'no-cache',
       });
       return response.ok ? await response.json() : null;
