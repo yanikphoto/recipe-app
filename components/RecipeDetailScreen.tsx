@@ -14,6 +14,87 @@ type RecipeDetailScreenProps = {
   onToggleGroceryItem: (ingredient: Ingredient) => void;
 };
 
+// --- FRACTION HELPERS ---
+
+const numberToFraction = (value: number | undefined): string => {
+    if (value === undefined || value === null) return '';
+    if (value === 0) return '0';
+    
+    const tolerance = 0.01;
+    const wholePart = Math.floor(value);
+    const fractionalPart = value - wholePart;
+
+    if (fractionalPart < tolerance) {
+        return String(wholePart);
+    }
+
+    const commonFractions: { [key: string]: number } = {
+        '1/16': 1/16, '1/8': 1/8, '1/5': 1/5, '1/4': 1/4, '1/3': 1/3, '3/8': 3/8, '2/5': 2/5,
+        '1/2': 1/2, '3/5': 3/5, '5/8': 5/8, '2/3': 2/3, '3/4': 3/4, '4/5': 4/5, '7/8': 7/8, '15/16': 15/16
+    };
+
+    let closestFraction = '';
+    let minDiff = 1;
+
+    // Find the closest common fraction within tolerance
+    for (const [fractionStr, decimalVal] of Object.entries(commonFractions)) {
+        const diff = Math.abs(fractionalPart - decimalVal);
+        if (diff < minDiff && diff < tolerance) {
+            minDiff = diff;
+            closestFraction = fractionStr;
+        }
+    }
+
+    if (closestFraction) {
+        return (wholePart > 0 ? `${wholePart} ` : '') + closestFraction;
+    }
+    
+    // Fallback for uncommon fractions to 2 decimal places
+    const fixed = value.toFixed(2);
+    if (fixed.endsWith('.00')) {
+        return String(Math.round(value));
+    }
+    return fixed.replace(/\.?0+$/, '');
+};
+
+
+const fractionToNumber = (value: string | undefined): number => {
+    if (value === undefined || value === null || typeof value !== 'string' || value.trim() === '') {
+        return NaN;
+    }
+    
+    value = value.trim();
+
+    const unicodeFractions: { [key: string]: number } = {
+        '½': 0.5, '⅓': 1/3, '⅔': 2/3, '¼': 0.25, '¾': 0.75, '⅕': 0.2, '⅖': 0.4, '⅗': 0.6, '⅘': 0.8,
+        '⅙': 1/6, '⅚': 5/6, '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875,
+    };
+    if (unicodeFractions[value]) return unicodeFractions[value];
+    
+    if (!value.includes('/') && !isNaN(Number(value))) return Number(value);
+    
+    let total = 0;
+    const parts = value.split(/[\s+]/).filter(Boolean);
+    
+    for (const part of parts) {
+        if (part.includes('/')) {
+            const [numerator, denominator] = part.split('/').map(Number);
+            if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
+                total += numerator / denominator;
+            } else {
+                return NaN;
+            }
+        } else if (!isNaN(Number(part))) {
+            total += Number(part);
+        } else {
+            return NaN;
+        }
+    }
+    
+    return total;
+};
+
+
 const getMetricDisplay = (ing: Ingredient): string | null => {
     // A very simple map for demo purposes.
     const conversions: { [key: string]: { [unit: string]: number } } = {
@@ -42,6 +123,8 @@ const getMetricDisplay = (ing: Ingredient): string | null => {
 const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editableRecipe, setEditableRecipe] = useState<Recipe>(recipe);
+    // State to hold string representations of quantities during editing
+    const [editingQuantities, setEditingQuantities] = useState<Record<string, string>>({});
 
     const [multiplier, setMultiplier] = useState(1);
     const [crossedIngredients, setCrossedIngredients] = useState<Set<string>>(new Set());
@@ -57,12 +140,7 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     const getAdjustedQuantity = (quantity?: number) => {
         if (quantity === undefined) return '';
         const result = quantity * multiplier;
-        // Handle fractions for better display
-        if (result % 1 === 0.5) return `${Math.floor(result) || ''} ½`;
-        if (result % 1 === 0.25) return `${Math.floor(result) || ''} ¼`;
-        if (result % 1 === 0.75) return `${Math.floor(result) || ''} ¾`;
-        if (result % 1 !== 0) return result.toFixed(2);
-        return result;
+        return numberToFraction(result);
     }
 
     const groceryListSet = useMemo(() => new Set(groceryList.map(item => item.name.toLowerCase())), [groceryList]);
@@ -84,7 +162,6 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         if (recipe.ingredients.length === 0) return false;
         return recipe.ingredients.every(ing => {
             const adjustedIngredient = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
-            const ingredientString = `${adjustedIngredient.quantity ? `${getAdjustedQuantity(adjustedIngredient.quantity)} ` : ''}${adjustedIngredient.unit || ''} ${adjustedIngredient.name}`.trim().toLowerCase();
             return groceryList.some(item => item.name.toLowerCase().includes(ing.name.toLowerCase()));
         });
     }, [recipe.ingredients, groceryList, multiplier]);
@@ -147,9 +224,25 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     // --- Edit Mode Handlers ---
     const handleToggleEdit = () => {
         if (isEditing) {
-            onUpdateRecipe(editableRecipe);
+            const updatedRecipe = { ...editableRecipe };
+            updatedRecipe.ingredients = editableRecipe.ingredients.map(ing => {
+                const quantityStr = editingQuantities[ing.id];
+                if (quantityStr !== undefined) {
+                    const numericQuantity = fractionToNumber(quantityStr);
+                    const originalIngredient = recipe.ingredients.find(origIng => origIng.id === ing.id);
+                    return { ...ing, quantity: isNaN(numericQuantity) ? originalIngredient?.quantity : numericQuantity };
+                }
+                return ing;
+            });
+            onUpdateRecipe(updatedRecipe);
+            setEditingQuantities({});
         } else {
             setEditableRecipe(recipe);
+            const initialQuantities = recipe.ingredients.reduce((acc, ing) => {
+                acc[ing.id] = numberToFraction(ing.quantity);
+                return acc;
+            }, {} as Record<string, string>);
+            setEditingQuantities(initialQuantities);
         }
         setIsEditing(!isEditing);
     };
@@ -159,10 +252,14 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         setIsImageModalOpen(false);
     };
 
-    const handleIngredientChange = (
+    const handleQuantityStringChange = (id: string, value: string) => {
+        setEditingQuantities(prev => ({...prev, [id]: value}));
+    };
+
+    const handleIngredientTextChange = (
         index: number,
-        field: keyof Ingredient,
-        value: string | number | undefined
+        field: 'name' | 'unit',
+        value: string
     ) => {
         const newIngredients = [...editableRecipe.ingredients];
         newIngredients[index] = { ...newIngredients[index], [field]: value };
@@ -172,10 +269,16 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     const handleAddIngredient = () => {
         const newIngredient: Ingredient = { id: crypto.randomUUID(), name: '', quantity: undefined, unit: '' };
         setEditableRecipe(prev => ({ ...prev, ingredients: [...prev.ingredients, newIngredient] }));
+        setEditingQuantities(prev => ({...prev, [newIngredient.id]: ''}));
     };
 
-    const handleRemoveIngredient = (index: number) => {
+    const handleRemoveIngredient = (id: string, index: number) => {
         setEditableRecipe(prev => ({ ...prev, ingredients: prev.ingredients.filter((_, i) => i !== index) }));
+        setEditingQuantities(prev => {
+            const newQuantities = {...prev};
+            delete newQuantities[id];
+            return newQuantities;
+        });
     };
 
     const handleInstructionChange = (index: number, value: string) => {
@@ -212,7 +315,6 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         }
     };
 
-// FIX: Refactored handleSortEnd to correctly handle type inference for ingredients and instructions arrays.
     const handleSortEnd = (type: 'ingredient' | 'instruction') => {
         if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
             if (type === 'ingredient') {
@@ -343,10 +445,10 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                     }`}
                 >
                     <span className="cursor-grab text-gray-400">☰</span>
-                    <input type="number" placeholder="Qt" value={ing.quantity || ''} onChange={(e) => handleIngredientChange(index, 'quantity', e.target.value ? parseFloat(e.target.value) : undefined)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
-                    <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)} className="w-20 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
-                    <input type="text" placeholder="Nom de l'ingrédient" value={ing.name} onChange={(e) => handleIngredientChange(index, 'name', e.target.value)} className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
-                    <button onClick={() => handleRemoveIngredient(index)} className="text-red-500 p-1">✕</button>
+                    <input type="text" placeholder="Qt" value={editingQuantities[ing.id] ?? ''} onChange={(e) => handleQuantityStringChange(ing.id, e.target.value)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientTextChange(index, 'unit', e.target.value)} className="w-20 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <input type="text" placeholder="Nom de l'ingrédient" value={ing.name} onChange={(e) => handleIngredientTextChange(index, 'name', e.target.value)} className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <button onClick={() => handleRemoveIngredient(ing.id, index)} className="text-red-500 p-1">✕</button>
                 </li>
            )) : recipe.ingredients.map(ing => {
                const ingredientForList = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
