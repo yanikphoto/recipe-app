@@ -212,17 +212,18 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         }
     };
 
+// FIX: Refactored handleSortEnd to correctly handle type inference for ingredients and instructions arrays.
     const handleSortEnd = (type: 'ingredient' | 'instruction') => {
-        const list = type === 'ingredient' ? editableRecipe.ingredients : editableRecipe.instructions;
-        
         if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
-            const newList = [...list];
-            const draggedItemContent = newList.splice(dragItem.current, 1)[0];
-            newList.splice(dragOverItem.current, 0, draggedItemContent);
-            
             if (type === 'ingredient') {
+                const newList = [...editableRecipe.ingredients];
+                const draggedItemContent = newList.splice(dragItem.current, 1)[0];
+                newList.splice(dragOverItem.current, 0, draggedItemContent);
                 setEditableRecipe(p => ({ ...p, ingredients: newList }));
             } else {
+                const newList = [...editableRecipe.instructions];
+                const draggedItemContent = newList.splice(dragItem.current, 1)[0];
+                newList.splice(dragOverItem.current, 0, draggedItemContent);
                 setEditableRecipe(p => ({ ...p, instructions: newList }));
             }
         }
