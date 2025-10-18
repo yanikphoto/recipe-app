@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { imageStore } from '../services/imageStore';
 
+const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
+
 type StoredImageProps = {
   imageId: string;
   alt: string;
@@ -17,13 +19,12 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
 
     const loadImage = async () => {
       setIsLoading(true);
-      if (!imageId) {
+      if (!imageId || typeof imageId !== 'string') {
         setImageUrl(fallbackImage);
         setIsLoading(false);
         return;
       }
       
-      // Handle legacy base64 or external URLs
       if (imageId.startsWith('data:') || imageId.startsWith('http')) {
         setImageUrl(imageId);
         setIsLoading(false);
@@ -31,16 +32,27 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
       }
 
       try {
-        const blob = await imageStore.getImage(imageId);
-        if (blob) {
-          objectUrl = URL.createObjectURL(blob);
+        const localBlob = await imageStore.getImage(imageId);
+        if (localBlob) {
+          objectUrl = URL.createObjectURL(localBlob);
           setImageUrl(objectUrl);
         } else {
-          console.warn(`Image with id ${imageId} not found in IndexedDB.`);
-          setImageUrl(fallbackImage);
+          // Image not found locally, fetch from the server.
+          const serverImageUrl = `${API_BASE_URL}/uploads/${imageId}.jpg`;
+          const response = await fetch(serverImageUrl);
+          if (response.ok) {
+            const serverBlob = await response.blob();
+            // Store the fetched image locally for next time.
+            await imageStore.saveImage(imageId, serverBlob);
+            objectUrl = URL.createObjectURL(serverBlob);
+            setImageUrl(objectUrl);
+          } else {
+            console.warn(`Image with id ${imageId} not found locally or on server.`);
+            setImageUrl(fallbackImage);
+          }
         }
       } catch (error) {
-        console.error("Failed to load image from IndexedDB", error);
+        console.error("Failed to load image:", error);
         setImageUrl(fallbackImage);
       } finally {
         setIsLoading(false);
