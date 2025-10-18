@@ -405,7 +405,12 @@ const App: React.FC = () => {
     };
         
     const addCustomGroceryItem = (name: string) => {
-        const newItem: GroceryListItem = { id: crypto.randomUUID(), name, completed: false };
+        const newItem: GroceryListItem = { 
+            id: crypto.randomUUID(), 
+            name, 
+            completed: false, 
+            updatedAt: new Date().toISOString() 
+        };
         const updatedItems = [newItem, ...groceryList];
         setGroceryList(updatedItems);
         localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
@@ -423,8 +428,10 @@ const App: React.FC = () => {
     };
 
     const reorderGroceryItems = (reorderedList: GroceryListItem[]) => {
-        setGroceryList(reorderedList);
-        localStorage.setItem('family_grocery', JSON.stringify(reorderedList));
+        const now = new Date().toISOString();
+        const updatedList = reorderedList.map(item => ({ ...item, updatedAt: now }));
+        setGroceryList(updatedList);
+        localStorage.setItem('family_grocery', JSON.stringify(updatedList));
     };
 
     const renderScreen = () => {

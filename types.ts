@@ -22,6 +22,7 @@ export type GroceryListItem = {
     id: string;
     name: string;
     completed: boolean;
+    updatedAt?: string;
 };
 
 export type Screen = 'welcome' | 'recipes' | 'add' | 'search' | 'list' | 'recipe-detail' | 'timer';
