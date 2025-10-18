@@ -15,13 +15,19 @@ export const apiSync = {
     }
   },
 
-  async saveData(data: AppData): Promise<AppData | null> {
+  async saveData(data: AppData, lastSyncTime: Date | null): Promise<AppData | null> {
     try {
         const payload: AppData = JSON.parse(JSON.stringify(data));
+        const lastSyncTimestamp = lastSyncTime ? lastSyncTime.getTime() : 0;
 
         for (const recipe of payload.recipes) {
             const isLocalImage = recipe.imageUrl && !recipe.imageUrl.startsWith('data:') && !recipe.imageUrl.startsWith('http');
-            if (isLocalImage) {
+            
+            // Determine if the recipe is new or has been updated since the last sync.
+            const recipeLastUpdated = recipe.updatedAt ? new Date(recipe.updatedAt).getTime() : 0;
+            const needsImageUpload = recipeLastUpdated > lastSyncTimestamp;
+
+            if (isLocalImage && needsImageUpload) {
                 try {
                     const blob = await imageStore.getImage(recipe.imageUrl);
                     if (blob) {
@@ -29,7 +35,11 @@ export const apiSync = {
                             const reader = new FileReader();
                             reader.onloadend = () => {
                                 const result = reader.result as string;
-                                resolve(result.split(',')[1]);
+                                if (result) {
+                                  resolve(result.split(',')[1]);
+                                } else {
+                                  reject(new Error("FileReader did not return a result."))
+                                }
                             };
                             reader.onerror = reject;
                             reader.readAsDataURL(blob);
@@ -57,7 +67,8 @@ export const apiSync = {
 
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch(`${API_BASE_URL}/health`, { cache: 'no-cache' });
+      const url = `${API_BASE_URL}/health?t=${new Date().getTime()}`;
+      const response = await fetch(url, { cache: 'no-cache' });
       return response.ok;
     } catch {
       return false;
