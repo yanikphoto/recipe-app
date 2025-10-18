@@ -49,7 +49,8 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     const [isImageModalOpen, setIsImageModalOpen] = useState(false);
     
-    // Refs for drag and drop
+    // Refs and state for drag and drop (both touch and mouse)
+    const [draggedState, setDraggedState] = useState<{ type: 'ingredient' | 'instruction' | null; index: number | null }>({ type: null, index: null });
     const dragItem = useRef<number | null>(null);
     const dragOverItem = useRef<number | null>(null);
 
@@ -191,14 +192,44 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         setEditableRecipe(prev => ({ ...prev, instructions: prev.instructions.filter((_, i) => i !== index) }));
     };
     
-    const handleDragSort = (list: any[], setList: (list: any[]) => void) => {
-        if (dragItem.current === null || dragOverItem.current === null) return;
-        const newList = [...list];
-        const draggedItemContent = newList.splice(dragItem.current, 1)[0];
-        newList.splice(dragOverItem.current, 0, draggedItemContent);
+    // --- Touch & Drag Sort Handlers ---
+    const handleTouchStart = (index: number, type: 'ingredient' | 'instruction') => {
+        dragItem.current = index;
+        setDraggedState({ type, index });
+    };
+
+    const handleTouchMove = (e: React.TouchEvent<HTMLLIElement>) => {
+        if (draggedState.index === null) return;
+        const touch = e.touches[0];
+        if (!touch) return;
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        const overLi = target?.closest('li[data-index]');
+        if (overLi instanceof HTMLElement && overLi.dataset.index) {
+            const overIndex = parseInt(overLi.dataset.index, 10);
+            if (!isNaN(overIndex)) {
+                dragOverItem.current = overIndex;
+            }
+        }
+    };
+
+    const handleSortEnd = (type: 'ingredient' | 'instruction') => {
+        const list = type === 'ingredient' ? editableRecipe.ingredients : editableRecipe.instructions;
+        
+        if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
+            const newList = [...list];
+            const draggedItemContent = newList.splice(dragItem.current, 1)[0];
+            newList.splice(dragOverItem.current, 0, draggedItemContent);
+            
+            if (type === 'ingredient') {
+                setEditableRecipe(p => ({ ...p, ingredients: newList }));
+            } else {
+                setEditableRecipe(p => ({ ...p, instructions: newList }));
+            }
+        }
+
         dragItem.current = null;
         dragOverItem.current = null;
-        setList(newList);
+        setDraggedState({ type: null, index: null });
     };
 
   return (
@@ -294,7 +325,22 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
 
         <ul className="space-y-4 mb-8">
            {isEditing ? editableRecipe.ingredients.map((ing, index) => (
-                <li key={ing.id} draggable onDragStart={() => dragItem.current = index} onDragEnter={() => dragOverItem.current = index} onDragEnd={() => handleDragSort(editableRecipe.ingredients, (list) => setEditableRecipe(p => ({ ...p, ingredients: list })))} onDragOver={(e) => e.preventDefault()} className="flex items-center gap-2 bg-gray-100 p-2 rounded-lg">
+                <li 
+                    key={ing.id} 
+                    data-index={index}
+                    draggable 
+                    onDragStart={() => dragItem.current = index} 
+                    onDragEnter={() => dragOverItem.current = index} 
+                    onDragEnd={() => handleSortEnd('ingredient')} 
+                    onDragOver={(e) => e.preventDefault()}
+                    onTouchStart={() => handleTouchStart(index, 'ingredient')}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={() => handleSortEnd('ingredient')}
+                    style={{ touchAction: 'none' }}
+                    className={`flex items-center gap-2 bg-gray-100 p-2 rounded-lg transition-shadow duration-200 ${
+                        draggedState.type === 'ingredient' && draggedState.index === index ? 'opacity-75 shadow-lg' : ''
+                    }`}
+                >
                     <span className="cursor-grab text-gray-400">☰</span>
                     <input type="number" placeholder="Qt" value={ing.quantity || ''} onChange={(e) => handleIngredientChange(index, 'quantity', e.target.value ? parseFloat(e.target.value) : undefined)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
                     <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientChange(index, 'unit', e.target.value)} className="w-20 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
@@ -330,7 +376,22 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         <h2 className="text-3xl font-bold text-gray-800 my-6">Préparation</h2>
         <ol className="space-y-6">
            {isEditing ? editableRecipe.instructions.map((step, index) => (
-               <li key={index} draggable onDragStart={() => dragItem.current = index} onDragEnter={() => dragOverItem.current = index} onDragEnd={() => handleDragSort(editableRecipe.instructions, (list) => setEditableRecipe(p => ({ ...p, instructions: list })))} onDragOver={(e) => e.preventDefault()} className="flex items-start gap-2 bg-gray-100 p-2 rounded-lg">
+               <li 
+                   key={index} 
+                   data-index={index}
+                   draggable 
+                   onDragStart={() => dragItem.current = index} 
+                   onDragEnter={() => dragOverItem.current = index} 
+                   onDragEnd={() => handleSortEnd('instruction')} 
+                   onDragOver={(e) => e.preventDefault()}
+                   onTouchStart={() => handleTouchStart(index, 'instruction')}
+                   onTouchMove={handleTouchMove}
+                   onTouchEnd={() => handleSortEnd('instruction')}
+                   style={{ touchAction: 'none' }}
+                   className={`flex items-start gap-2 bg-gray-100 p-2 rounded-lg transition-shadow duration-200 ${
+                       draggedState.type === 'instruction' && draggedState.index === index ? 'opacity-75 shadow-lg' : ''
+                   }`}
+                >
                    <span className="cursor-grab text-gray-400 pt-1">☰</span>
                    <textarea value={step} onChange={(e) => handleInstructionChange(index, e.target.value)} className="w-full p-1 border rounded-md bg-white text-gray-800 placeholder-gray-400" rows={3}></textarea>
                    <button onClick={() => handleRemoveInstruction(index)} className="text-red-500 p-1">✕</button>

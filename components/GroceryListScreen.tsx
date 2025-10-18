@@ -11,6 +11,7 @@ type GroceryListScreenProps = {
 
 const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onBack }) => {
     const [newItem, setNewItem] = useState('');
+    const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const dragItem = useRef<number | null>(null);
     const dragOverItem = useRef<number | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -24,7 +25,27 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         }
     };
 
-    const handleDragSort = () => {
+    const handleTouchStart = (index: number) => {
+        dragItem.current = index;
+        setDraggedIndex(index);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent<HTMLLIElement>) => {
+        if (draggedIndex === null) return;
+        const touch = e.touches[0];
+        if (!touch) return;
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        const overLi = target?.closest('li[data-index]');
+        if (overLi instanceof HTMLElement && overLi.dataset.index) {
+            const overIndex = parseInt(overLi.dataset.index, 10);
+            if (!isNaN(overIndex)) {
+                dragOverItem.current = overIndex;
+            }
+        }
+    };
+
+    const handleSortEnd = () => {
+        setDraggedIndex(null);
         if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
              dragItem.current = null;
              dragOverItem.current = null;
@@ -68,13 +89,20 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                 <ul className="space-y-3">
                     {items.map((item, index) => (
                         <li 
-                            key={item.id} 
+                            key={item.id}
+                            data-index={index}
                             draggable
-                            onDragStart={() => dragItem.current = index}
-                            onDragEnter={() => dragOverItem.current = index}
-                            onDragEnd={handleDragSort}
+                            onDragStart={() => (dragItem.current = index)}
+                            onDragEnter={() => (dragOverItem.current = index)}
+                            onDragEnd={handleSortEnd}
                             onDragOver={(e) => e.preventDefault()}
-                            className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing group"
+                            onTouchStart={() => handleTouchStart(index)}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleSortEnd}
+                            style={{ touchAction: 'none' }}
+                            className={`flex items-center justify-between p-4 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-200 ${
+                                draggedIndex === index ? 'opacity-75 bg-gray-100 shadow-lg scale-105' : 'bg-white'
+                            }`}
                         >
                             <div className="flex items-center">
                                 <span className="text-gray-400 mr-4" aria-label="Réorganiser l'article">
