@@ -1,6 +1,7 @@
 // sw.js
 
 const CACHE_NAME = 'nos-recettes-cache-v2';
+const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
 const URLS_TO_CACHE = [
   '/',
   '/index.html',
@@ -44,7 +45,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Ignore API calls, always go to network.
-  if (event.request.url.includes('/api/')) {
+  if (event.request.url.startsWith(API_BASE_URL)) {
     return;
   }
 
