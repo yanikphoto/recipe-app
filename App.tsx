@@ -331,7 +331,7 @@ const App: React.FC = () => {
     };
 
     const updateRecipe = async (updatedRecipe: Recipe) => {
-        let finalRecipe = { ...updatedRecipe };
+        let finalRecipe = { ...updatedRecipe, updatedAt: new Date().toISOString() };
         const originalRecipe = recipes.find(r => r.id === updatedRecipe.id);
         
         // Check if the image has changed. New images will be base64.

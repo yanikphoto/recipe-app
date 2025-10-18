@@ -15,6 +15,7 @@ export type Recipe = {
   instructions: string[];
   servings: number;
   imageBase64?: string;
+  updatedAt?: string;
 };
 
 export type GroceryListItem = {
