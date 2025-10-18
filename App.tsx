@@ -94,7 +94,7 @@ const App: React.FC = () => {
             const localData = getFullLocalData();
     
             if (online) {
-                const finalData = await apiSync.saveData(localData);
+                const finalData = await apiSync.saveData(localData, lastSyncTime);
     
                 if (finalData) {
                     // Process incoming images
