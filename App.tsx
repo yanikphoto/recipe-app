@@ -43,6 +43,14 @@ const App: React.FC = () => {
         const categoriesFromRecipes = recipes.flatMap(r => r.categories);
         return [...new Set([...DEFAULT_CATEGORIES, ...categoriesFromRecipes])];
     }, [recipes]);
+    
+    const sortedRecipes = useMemo(() => {
+        return [...recipes].sort((a, b) => {
+            const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+            const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+            return dateB - dateA;
+        });
+    }, [recipes]);
 
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
@@ -439,7 +447,7 @@ const App: React.FC = () => {
             case 'welcome':
                 return <WelcomeScreen setActiveScreen={setActiveScreen} />;
             case 'recipes':
-                return <RecipeListScreen recipes={recipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
+                return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
             case 'add':
                 return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} allCategories={allCategories} />;
             case 'list':
@@ -473,7 +481,7 @@ const App: React.FC = () => {
                         groceryList={groceryList}
                         onToggleGroceryItem={toggleGroceryItemFromIngredient}
                     /> 
-                    : <RecipeListScreen recipes={recipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
+                    : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
             default:
                 return <WelcomeScreen setActiveScreen={setActiveScreen} />;
         }
@@ -524,7 +532,7 @@ const App: React.FC = () => {
 
             {isSearchOpen && (
                 <SearchModal 
-                    recipes={recipes}
+                    recipes={sortedRecipes}
                     onSelectRecipe={viewRecipe}
                     onClose={closeSearchModal}
                 />
