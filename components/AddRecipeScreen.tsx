@@ -58,6 +58,7 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
             servings: parsedData.servings || 1,
             ingredients: parsedData.ingredients.map(ing => ({ ...ing, id: crypto.randomUUID() })),
             instructions: parsedData.instructions,
+            updatedAt: new Date().toISOString(),
         };
 
         onAddRecipe(newRecipe);
