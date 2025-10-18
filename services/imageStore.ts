@@ -34,13 +34,16 @@ const base64ToBlob = (base64: string, mimeType: string = 'image/jpeg'): Blob => 
 };
 
 export const imageStore = {
-  async saveImage(id: string, base64Data: string): Promise<void> {
+  async saveImage(id: string, data: string | Blob): Promise<void> {
     const db = await getDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, 'readwrite');
       const store = transaction.objectStore(STORE_NAME);
-      const blob = base64ToBlob(base64Data);
-      const request = store.put(blob, id);
+      
+      // If data is a base64 string, convert it to a Blob. Otherwise, use the Blob directly.
+      const imageBlob = data instanceof Blob ? data : base64ToBlob(data);
+      
+      const request = store.put(imageBlob, id);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
     });
