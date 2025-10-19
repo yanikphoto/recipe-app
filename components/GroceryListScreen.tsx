@@ -13,23 +13,19 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
     const [newItem, setNewItem] = useState('');
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+    
+    // Refs to hold state that needs to be accessed synchronously in event handlers
     const dragItem = useRef<number | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const longPressTimeoutRef = useRef<number | null>(null);
     const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
-    
-    // This ref helps the global event listener know if we are dragging, avoiding stale closures.
-    const isDraggingRef = useRef(false);
-    useEffect(() => {
-        isDraggingRef.current = activeIndex !== null;
-    }, [activeIndex]);
+    const isDraggingRef = useRef(false); // Ref to track dragging state directly
 
-    // Set up a global, non-passive event listener to prevent scrolling on iOS Safari
-    // when a drag is active. This is more reliable than e.preventDefault() in React's synthetic event handler.
+    // Effect for the global listener to prevent scrolling on iOS.
+    // This now relies on isDraggingRef, which we manage manually.
     useEffect(() => {
         const handleGlobalTouchMove = (e: TouchEvent) => {
             if (isDraggingRef.current) {
-                // This is the key to preventing scrolling during a drag on iOS.
                 e.preventDefault();
             }
         };
@@ -39,8 +35,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         return () => {
             window.removeEventListener('touchmove', handleGlobalTouchMove);
         };
-    }, []); // Run only once on component mount.
-
+    }, []); // Empty dependency array, runs once.
 
     const LONG_PRESS_DURATION = 500; // ms
     const SCROLL_THRESHOLD = 10; // pixels
@@ -64,16 +59,18 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         _items.splice(dragOverIndex, 0, draggedItemContent);
         onReorderItems(_items);
     };
-
+    
+    // A single function to clean up all drag-related state.
     const resetDragState = () => {
-        setActiveIndex(null);
-        setDragOverIndex(null);
-        dragItem.current = null;
-        touchStartPosRef.current = null;
         if (longPressTimeoutRef.current) {
             clearTimeout(longPressTimeoutRef.current);
             longPressTimeoutRef.current = null;
         }
+        isDraggingRef.current = false;
+        dragItem.current = null;
+        touchStartPosRef.current = null;
+        setActiveIndex(null);
+        setDragOverIndex(null);
     };
     
     // --- Desktop Drag Handlers ---
@@ -84,37 +81,45 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
 
     const handleDragEnd = () => {
         handleSort();
-        resetDragState();
+        // Use a simpler reset for desktop
+        dragItem.current = null;
+        setActiveIndex(null);
+        setDragOverIndex(null);
     };
 
     // --- Mobile Touch Handlers ---
     const handleTouchStart = (index: number, e: React.TouchEvent<HTMLLIElement>) => {
+        // Prevent multiple touch starts from creating issues
+        if (longPressTimeoutRef.current) clearTimeout(longPressTimeoutRef.current);
+
         touchStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
 
         longPressTimeoutRef.current = window.setTimeout(() => {
             if ('vibrate' in navigator) navigator.vibrate(50);
+            isDraggingRef.current = true;
             dragItem.current = index;
-            setActiveIndex(index); // This will update isDraggingRef.current via its useEffect
+            setActiveIndex(index);
             longPressTimeoutRef.current = null;
         }, LONG_PRESS_DURATION);
     };
 
     const handleTouchMove = (e: React.TouchEvent<HTMLLIElement>) => {
         if (!touchStartPosRef.current) return;
-
         const touch = e.touches[0];
-        const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x);
-        const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y);
 
-        // If user moves before long press timer, it's a scroll, so cancel the drag initiation.
-        if (longPressTimeoutRef.current && (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD)) {
-            clearTimeout(longPressTimeoutRef.current);
-            longPressTimeoutRef.current = null;
+        // If user moves before long press timer, it's a scroll, so cancel drag initiation.
+        if (longPressTimeoutRef.current) {
+            const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x);
+            const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y);
+            if (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD) {
+                clearTimeout(longPressTimeoutRef.current);
+                longPressTimeoutRef.current = null;
+            }
         }
 
-        // If dragging is active, find the element we are dragging over.
-        // The global listener handles preventDefault, so we don't need it here.
-        if (activeIndex !== null) {
+        // If dragging is active, find which element we are dragging over.
+        // We check our ref, which is guaranteed to be up-to-date.
+        if (isDraggingRef.current) {
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             const overLi = target?.closest('li[data-index]');
             if (overLi instanceof HTMLElement && overLi.dataset.index) {
@@ -127,11 +132,10 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
     };
 
     const handleTouchEndOrCancel = () => {
-        // iOS can fire `touchcancel` if it decides to take over scrolling.
-        // We handle this the same way as `touchend`.
-        if (activeIndex !== null) {
+        if (isDraggingRef.current) {
             handleSort();
         }
+        // Always reset state on touch end/cancel.
         resetDragState();
     };
 
@@ -165,7 +169,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                     {items.map((item, index) => {
                         let transformStyle = '';
                         const isDragging = activeIndex !== null;
-                        const dragStartIndex = dragItem.current;
+                        const dragStartIndex = dragItem.current; // can be from touch or desktop drag
 
                         if (isDragging && dragStartIndex !== null && dragOverIndex !== null && index !== dragStartIndex) {
                             if (dragStartIndex < dragOverIndex) { // Dragging down
