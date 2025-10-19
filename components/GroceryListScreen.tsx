@@ -77,16 +77,16 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                     value={newItem}
                     onChange={(e) => setNewItem(e.target.value)}
                     placeholder="Ajouter un article..."
-                    className="w-full p-4 text-gray-700 bg-white border border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63] focus:border-transparent text-lg"
+                    className="w-full p-3 text-gray-700 bg-white border border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63] focus:border-transparent text-lg"
                     autoFocus
                 />
-                <button type="submit" aria-label="Ajouter l'article" className="flex-shrink-0 bg-gray-200 w-14 h-14 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors disabled:opacity-50" disabled={!newItem.trim()}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                <button type="submit" aria-label="Ajouter l'article" className="flex-shrink-0 bg-gray-200 w-12 h-12 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors disabled:opacity-50" disabled={!newItem.trim()}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                 </button>
             </form>
 
             {items.length > 0 ? (
-                <ul className="space-y-3">
+                <ul className="space-y-2">
                     {items.map((item, index) => (
                         <li 
                             key={item.id}
@@ -100,7 +100,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                             onTouchMove={handleTouchMove}
                             onTouchEnd={handleSortEnd}
                             style={{ touchAction: 'none' }}
-                            className={`flex items-center justify-between p-4 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-200 ${
+                            className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-200 ${
                                 draggedIndex === index ? 'opacity-75 bg-gray-100 shadow-lg scale-105' : 'bg-white'
                             }`}
                         >
