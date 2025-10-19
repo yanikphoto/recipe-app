@@ -88,6 +88,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         }
 
         if (activeIndex !== null) {
+            e.preventDefault(); // Prevent scrolling ONLY when dragging is active
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             const overLi = target?.closest('li[data-index]');
             if (overLi instanceof HTMLElement && overLi.dataset.index) {
@@ -160,7 +161,6 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                                 onTouchStart={(e) => handleTouchStart(index, e)}
                                 onTouchMove={handleTouchMove}
                                 onTouchEnd={handleTouchEnd}
-                                style={{ touchAction: 'none' }}
                                 className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-300 ${
                                     activeIndex === index 
                                         ? 'opacity-75 bg-gray-100 shadow-lg scale-105 z-10' 
