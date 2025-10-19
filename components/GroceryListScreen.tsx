@@ -11,143 +11,131 @@ type GroceryListScreenProps = {
 
 const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onBack }) => {
     const [newItem, setNewItem] = useState('');
-    const [activeIndex, setActiveIndex] = useState<number | null>(null);
-    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-    
     const inputRef = useRef<HTMLInputElement>(null);
+    
+    // State for visual feedback during drag
+    const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+    // Refs for drag logic to avoid stale closures and unnecessary re-renders
     const itemsRef = useRef(items);
-    const dragItemRef = useRef<number | null>(null);
-    const dragOverItemRef = useRef<number | null>(null);
-    const longPressTimeoutRef = useRef<number | null>(null);
-    const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
-    const isDraggingRef = useRef(false);
+    const gestureStateRef = useRef({
+        isDragging: false,
+        longPressTimeout: -1,
+        dragStartIndex: -1,
+        currentDragOverIndex: -1,
+        touchStartPos: { x: 0, y: 0 },
+    });
+    // Refs for desktop D&D
+    const desktopDragItemRef = useRef<number | null>(null);
+    const desktopDragOverItemRef = useRef<number | null>(null);
 
     useEffect(() => {
-        // Keep a ref to the latest items to avoid stale closures in event handlers
         itemsRef.current = items;
     }, [items]);
-
-    const LONG_PRESS_DURATION = 500;
-    const SCROLL_THRESHOLD = 10;
 
     const addItem = (e: React.FormEvent) => {
         e.preventDefault();
         if (newItem.trim()) {
             onAddItem(newItem.trim());
             setNewItem('');
-            inputRef.current?.focus();
         }
     };
-    
-    // --- Desktop Drag-and-Drop Handlers ---
-    const handleDragStart = (index: number) => {
-        dragItemRef.current = index;
-        setActiveIndex(index);
+
+    // --- Cleanup and Reset ---
+    const resetDragState = () => {
+        setDraggedIndex(null);
+        setDragOverIndex(null);
+        desktopDragItemRef.current = null;
+        desktopDragOverItemRef.current = null;
+        gestureStateRef.current.isDragging = false;
+        gestureStateRef.current.dragStartIndex = -1;
+        gestureStateRef.current.currentDragOverIndex = -1;
     };
-    
-    const handleDragEnter = (index: number) => {
-        if (activeIndex === null) return; // Only process if a drag has started
-        dragOverItemRef.current = index;
+
+    // --- Desktop Drag-and-Drop ---
+    const handleDesktopDragStart = (index: number) => {
+        desktopDragItemRef.current = index;
+        setDraggedIndex(index);
+    };
+
+    const handleDesktopDragEnter = (index: number) => {
+        if (desktopDragItemRef.current === null) return;
+        desktopDragOverItemRef.current = index;
         setDragOverIndex(index);
     };
 
-    const handleDragEnd = () => {
-        if (dragItemRef.current !== null && dragOverItemRef.current !== null) {
-            const from = dragItemRef.current;
-            const to = dragOverItemRef.current;
-            if (from !== to) {
-                let _items = [...items];
-                const [reorderedItem] = _items.splice(from, 1);
-                _items.splice(to, 0, reorderedItem);
-                onReorderItems(_items);
-            }
+    const handleDesktopDragEnd = () => {
+        const from = desktopDragItemRef.current;
+        const to = desktopDragOverItemRef.current;
+        if (from !== null && to !== null && from !== to) {
+            let reorderedItems = [...items];
+            const [movedItem] = reorderedItems.splice(from, 1);
+            reorderedItems.splice(to, 0, movedItem);
+            onReorderItems(reorderedItems);
         }
-        // Reset state for desktop D&D
-        setActiveIndex(null);
-        setDragOverIndex(null);
-        dragItemRef.current = null;
-        dragOverItemRef.current = null;
+        resetDragState();
     };
 
     // --- Mobile Touch Handlers ---
-    const handleTouchStart = (index: number, e: React.TouchEvent) => {
-        touchStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        dragItemRef.current = index;
+    const handleTouchMove = (e: TouchEvent) => {
+        const { isDragging, touchStartPos } = gestureStateRef.current;
+        if (e.touches.length === 0) return;
+        const touch = e.touches[0];
 
-        const handleMove = (moveEvent: TouchEvent) => {
-            if (!touchStartPosRef.current) {
-                handleEnd(); // Should not happen, but safeguard
-                return;
+        if (!isDragging) {
+            const deltaX = Math.abs(touch.clientX - touchStartPos.x);
+            const deltaY = Math.abs(touch.clientY - touchStartPos.y);
+            const SCROLL_THRESHOLD = 10;
+            if (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD) {
+                clearTimeout(gestureStateRef.current.longPressTimeout);
             }
+            return;
+        }
 
-            const touch = moveEvent.touches[0];
-            const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x);
-            const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y);
+        e.preventDefault();
 
-            // If timer is running and user moves, it's a scroll.
-            if (longPressTimeoutRef.current && (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD)) {
-                clearTimeout(longPressTimeoutRef.current);
-                longPressTimeoutRef.current = null;
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        const overLi = target?.closest('li[data-index]');
+        if (overLi instanceof HTMLElement && overLi.dataset.index) {
+            const overIndex = parseInt(overLi.dataset.index, 10);
+            if (!isNaN(overIndex)) {
+                gestureStateRef.current.currentDragOverIndex = overIndex;
+                setDragOverIndex(overIndex);
             }
-            
-            // If dragging is active, prevent scroll and update position.
-            if (isDraggingRef.current) {
-                moveEvent.preventDefault();
-
-                const target = document.elementFromPoint(touch.clientX, touch.clientY);
-                const overLi = target?.closest('li[data-index]');
-                if (overLi instanceof HTMLElement && overLi.dataset.index) {
-                    const overIndex = parseInt(overLi.dataset.index, 10);
-                    if (!isNaN(overIndex)) {
-                        dragOverItemRef.current = overIndex;
-                        setDragOverIndex(overIndex);
-                    }
-                }
-            }
-        };
-
-        const handleEnd = () => {
-            // Always clean up listeners
-            window.removeEventListener('touchmove', handleMove);
-            window.removeEventListener('touchend', handleEnd);
-            window.removeEventListener('touchcancel', handleEnd);
-
-            if (longPressTimeoutRef.current) {
-                clearTimeout(longPressTimeoutRef.current);
-            }
-
-            if (isDraggingRef.current && dragItemRef.current !== null && dragOverItemRef.current !== null) {
-                const from = dragItemRef.current;
-                const to = dragOverItemRef.current;
-                if (from !== to) {
-                    let _items = [...itemsRef.current];
-                    const [reorderedItem] = _items.splice(from, 1);
-                    _items.splice(to, 0, reorderedItem);
-                    onReorderItems(_items);
-                }
-            }
-            
-            // Reset all state and refs
-            isDraggingRef.current = false;
-            dragItemRef.current = null;
-            dragOverItemRef.current = null;
-            touchStartPosRef.current = null;
-            setActiveIndex(null);
-            setDragOverIndex(null);
-        };
-        
-        window.addEventListener('touchmove', handleMove, { passive: false });
-        window.addEventListener('touchend', handleEnd);
-        window.addEventListener('touchcancel', handleEnd);
-        
-        longPressTimeoutRef.current = window.setTimeout(() => {
-            if ('vibrate' in navigator) navigator.vibrate(50);
-            isDraggingRef.current = true;
-            setActiveIndex(index);
-            longPressTimeoutRef.current = null;
-        }, LONG_PRESS_DURATION);
+        }
     };
 
+    const handleTouchEnd = () => {
+        window.removeEventListener('touchmove', handleTouchMove);
+        window.removeEventListener('touchend', handleTouchEnd);
+        window.removeEventListener('touchcancel', handleTouchEnd);
+        clearTimeout(gestureStateRef.current.longPressTimeout);
+
+        const { isDragging, dragStartIndex, currentDragOverIndex } = gestureStateRef.current;
+        if (isDragging && dragStartIndex !== -1 && currentDragOverIndex !== -1 && dragStartIndex !== currentDragOverIndex) {
+            let reorderedItems = [...itemsRef.current];
+            const [movedItem] = reorderedItems.splice(dragStartIndex, 1);
+            reorderedItems.splice(currentDragOverIndex, 0, movedItem);
+            onReorderItems(reorderedItems);
+        }
+        resetDragState();
+    };
+    
+    const handleTouchStart = (index: number, e: React.TouchEvent) => {
+        gestureStateRef.current.dragStartIndex = index;
+        gestureStateRef.current.touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+        gestureStateRef.current.longPressTimeout = window.setTimeout(() => {
+            gestureStateRef.current.isDragging = true;
+            setDraggedIndex(index);
+            if ('vibrate' in navigator) navigator.vibrate(50);
+        }, 500);
+
+        window.addEventListener('touchmove', handleTouchMove, { passive: false });
+        window.addEventListener('touchend', handleTouchEnd);
+        window.addEventListener('touchcancel', handleTouchEnd);
+    };
 
     return (
         <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24">
@@ -166,7 +154,6 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                     onChange={(e) => setNewItem(e.target.value)}
                     placeholder="Ajouter un article..."
                     className="w-full p-3 text-gray-700 bg-white border border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63] focus:border-transparent text-lg"
-                    autoFocus
                 />
                 <button type="submit" aria-label="Ajouter l'article" className="flex-shrink-0 bg-gray-200 w-12 h-12 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors disabled:opacity-50" disabled={!newItem.trim()}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
@@ -176,15 +163,15 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
             {items.length > 0 ? (
                 <ul className="space-y-2 relative">
                     {items.map((item, index) => {
-                        let transformStyle = '';
-                        const isBeingDragged = activeIndex === index;
-                        const isDragActive = activeIndex !== null;
+                        const isBeingDragged = draggedIndex === index;
+                        const isDragActive = draggedIndex !== null;
 
+                        let transformStyle = '';
                         if (isDragActive && !isBeingDragged && dragOverIndex !== null) {
-                            if (index > activeIndex && index <= dragOverIndex) {
-                                transformStyle = '-translate-y-full'; // Item moves up
-                            } else if (index < activeIndex && index >= dragOverIndex) {
-                                transformStyle = 'translate-y-full'; // Item moves down
+                            if (index > draggedIndex && index <= dragOverIndex) {
+                                transformStyle = '-translate-y-full';
+                            } else if (index < draggedIndex && index >= dragOverIndex) {
+                                transformStyle = 'translate-y-full';
                             }
                         }
                         
@@ -193,9 +180,9 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                                 key={item.id}
                                 data-index={index}
                                 draggable
-                                onDragStart={() => handleDragStart(index)}
-                                onDragEnter={() => handleDragEnter(index)}
-                                onDragEnd={handleDragEnd}
+                                onDragStart={() => handleDesktopDragStart(index)}
+                                onDragEnter={() => handleDesktopDragEnter(index)}
+                                onDragEnd={handleDesktopDragEnd}
                                 onDragOver={(e) => e.preventDefault()}
                                 onTouchStart={(e) => handleTouchStart(index, e)}
                                 className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-300 ${
