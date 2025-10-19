@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { GroceryListItem } from '../types';
 
 type GroceryListScreenProps = {
@@ -17,6 +17,30 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
     const inputRef = useRef<HTMLInputElement>(null);
     const longPressTimeoutRef = useRef<number | null>(null);
     const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+    
+    // This ref helps the global event listener know if we are dragging, avoiding stale closures.
+    const isDraggingRef = useRef(false);
+    useEffect(() => {
+        isDraggingRef.current = activeIndex !== null;
+    }, [activeIndex]);
+
+    // Set up a global, non-passive event listener to prevent scrolling on iOS Safari
+    // when a drag is active. This is more reliable than e.preventDefault() in React's synthetic event handler.
+    useEffect(() => {
+        const handleGlobalTouchMove = (e: TouchEvent) => {
+            if (isDraggingRef.current) {
+                // This is the key to preventing scrolling during a drag on iOS.
+                e.preventDefault();
+            }
+        };
+
+        window.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
+
+        return () => {
+            window.removeEventListener('touchmove', handleGlobalTouchMove);
+        };
+    }, []); // Run only once on component mount.
+
 
     const LONG_PRESS_DURATION = 500; // ms
     const SCROLL_THRESHOLD = 10; // pixels
@@ -70,7 +94,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         longPressTimeoutRef.current = window.setTimeout(() => {
             if ('vibrate' in navigator) navigator.vibrate(50);
             dragItem.current = index;
-            setActiveIndex(index);
+            setActiveIndex(index); // This will update isDraggingRef.current via its useEffect
             longPressTimeoutRef.current = null;
         }, LONG_PRESS_DURATION);
     };
@@ -82,13 +106,15 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x);
         const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y);
 
+        // If user moves before long press timer, it's a scroll, so cancel the drag initiation.
         if (longPressTimeoutRef.current && (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD)) {
             clearTimeout(longPressTimeoutRef.current);
             longPressTimeoutRef.current = null;
         }
 
+        // If dragging is active, find the element we are dragging over.
+        // The global listener handles preventDefault, so we don't need it here.
         if (activeIndex !== null) {
-            e.preventDefault(); // Prevent scrolling ONLY when dragging is active
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             const overLi = target?.closest('li[data-index]');
             if (overLi instanceof HTMLElement && overLi.dataset.index) {
@@ -100,8 +126,12 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         }
     };
 
-    const handleTouchEnd = () => {
-        if (activeIndex !== null) handleSort();
+    const handleTouchEndOrCancel = () => {
+        // iOS can fire `touchcancel` if it decides to take over scrolling.
+        // We handle this the same way as `touchend`.
+        if (activeIndex !== null) {
+            handleSort();
+        }
         resetDragState();
     };
 
@@ -160,7 +190,8 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                                 onDragOver={(e) => e.preventDefault()}
                                 onTouchStart={(e) => handleTouchStart(index, e)}
                                 onTouchMove={handleTouchMove}
-                                onTouchEnd={handleTouchEnd}
+                                onTouchEnd={handleTouchEndOrCancel}
+                                onTouchCancel={handleTouchEndOrCancel}
                                 className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-300 ${
                                     activeIndex === index 
                                         ? 'opacity-75 bg-gray-100 shadow-lg scale-105 z-10' 
