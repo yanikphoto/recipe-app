@@ -11,53 +11,97 @@ type GroceryListScreenProps = {
 
 const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onBack }) => {
     const [newItem, setNewItem] = useState('');
-    const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+    const [activeIndex, setActiveIndex] = useState<number | null>(null);
     const dragItem = useRef<number | null>(null);
     const dragOverItem = useRef<number | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const longPressTimeoutRef = useRef<number | null>(null);
+    const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+    const LONG_PRESS_DURATION = 500; // ms
+    const SCROLL_THRESHOLD = 10; // pixels
 
     const addItem = (e: React.FormEvent) => {
         e.preventDefault();
         if (newItem.trim()) {
             onAddItem(newItem.trim());
             setNewItem('');
-            inputRef.current?.focus(); // Keep focus after adding
+            inputRef.current?.focus();
         }
     };
-
-    const handleTouchStart = (index: number) => {
-        dragItem.current = index;
-        setDraggedIndex(index);
-    };
-
-    const handleTouchMove = (e: React.TouchEvent<HTMLLIElement>) => {
-        if (draggedIndex === null) return;
-        const touch = e.touches[0];
-        if (!touch) return;
-        const target = document.elementFromPoint(touch.clientX, touch.clientY);
-        const overLi = target?.closest('li[data-index]');
-        if (overLi instanceof HTMLElement && overLi.dataset.index) {
-            const overIndex = parseInt(overLi.dataset.index, 10);
-            if (!isNaN(overIndex)) {
-                dragOverItem.current = overIndex;
-            }
-        }
-    };
-
-    const handleSortEnd = () => {
-        setDraggedIndex(null);
+    
+    const handleSort = () => {
         if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
-             dragItem.current = null;
-             dragOverItem.current = null;
             return;
         }
         
         let _items = [...items];
         const draggedItemContent = _items.splice(dragItem.current, 1)[0];
         _items.splice(dragOverItem.current, 0, draggedItemContent);
+        onReorderItems(_items);
+    };
+
+    const resetDragState = () => {
+        setActiveIndex(null);
         dragItem.current = null;
         dragOverItem.current = null;
-        onReorderItems(_items);
+        touchStartPosRef.current = null;
+        if (longPressTimeoutRef.current) {
+            clearTimeout(longPressTimeoutRef.current);
+            longPressTimeoutRef.current = null;
+        }
+    };
+    
+    // --- Desktop Drag Handlers ---
+    const handleDragStart = (index: number) => {
+        dragItem.current = index;
+        setActiveIndex(index);
+    };
+
+    const handleDragEnd = () => {
+        handleSort();
+        resetDragState();
+    };
+
+    // --- Mobile Touch Handlers ---
+    const handleTouchStart = (index: number, e: React.TouchEvent<HTMLLIElement>) => {
+        touchStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+        longPressTimeoutRef.current = window.setTimeout(() => {
+            if ('vibrate' in navigator) navigator.vibrate(50);
+            dragItem.current = index;
+            setActiveIndex(index);
+            longPressTimeoutRef.current = null;
+        }, LONG_PRESS_DURATION);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent<HTMLLIElement>) => {
+        if (!touchStartPosRef.current) return;
+
+        const touch = e.touches[0];
+        const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x);
+        const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y);
+
+        // If scrolling, cancel the long press
+        if (longPressTimeoutRef.current && (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD)) {
+            clearTimeout(longPressTimeoutRef.current);
+            longPressTimeoutRef.current = null;
+        }
+
+        // If in drag mode, update the drop target
+        if (activeIndex !== null) {
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            const overLi = target?.closest('li[data-index]');
+            if (overLi instanceof HTMLElement && overLi.dataset.index) {
+                const overIndex = parseInt(overLi.dataset.index, 10);
+                if (!isNaN(overIndex)) dragOverItem.current = overIndex;
+            }
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (activeIndex !== null) handleSort();
+        resetDragState();
     };
 
 
@@ -92,16 +136,16 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                             key={item.id}
                             data-index={index}
                             draggable
-                            onDragStart={() => (dragItem.current = index)}
+                            onDragStart={() => handleDragStart(index)}
                             onDragEnter={() => (dragOverItem.current = index)}
-                            onDragEnd={handleSortEnd}
+                            onDragEnd={handleDragEnd}
                             onDragOver={(e) => e.preventDefault()}
-                            onTouchStart={() => handleTouchStart(index)}
+                            onTouchStart={(e) => handleTouchStart(index, e)}
                             onTouchMove={handleTouchMove}
-                            onTouchEnd={handleSortEnd}
+                            onTouchEnd={handleTouchEnd}
                             style={{ touchAction: 'none' }}
                             className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-200 ${
-                                draggedIndex === index ? 'opacity-75 bg-gray-100 shadow-lg scale-105' : 'bg-white'
+                                activeIndex === index ? 'opacity-75 bg-gray-100 shadow-lg scale-105' : 'bg-white'
                             }`}
                         >
                             <div className="flex items-center">
