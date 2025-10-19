@@ -17,8 +17,7 @@ type RecipeDetailScreenProps = {
 // --- FRACTION HELPERS ---
 
 const numberToFraction = (value: number | undefined): string => {
-    if (value === undefined || value === null) return '';
-    if (value === 0) return '0';
+    if (value === undefined || value === null || value === 0) return '';
     
     const tolerance = 0.01;
     const wholePart = Math.floor(value);
@@ -123,8 +122,8 @@ const getMetricDisplay = (ing: Ingredient): string | null => {
 const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editableRecipe, setEditableRecipe] = useState<Recipe>(recipe);
-    // State to hold string representations of quantities during editing
     const [editingQuantities, setEditingQuantities] = useState<Record<string, string>>({});
+    const [editingServings, setEditingServings] = useState<string>('');
 
     const [multiplier, setMultiplier] = useState(1);
     const [crossedIngredients, setCrossedIngredients] = useState<Set<string>>(new Set());
@@ -234,8 +233,13 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                 }
                 return ing;
             });
+            
+            const numericServings = fractionToNumber(editingServings);
+            updatedRecipe.servings = isNaN(numericServings) ? 0 : numericServings;
+
             onUpdateRecipe(updatedRecipe);
             setEditingQuantities({});
+            setEditingServings('');
         } else {
             setEditableRecipe(recipe);
             const initialQuantities = recipe.ingredients.reduce((acc, ing) => {
@@ -243,6 +247,7 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                 return acc;
             }, {} as Record<string, string>);
             setEditingQuantities(initialQuantities);
+            setEditingServings(numberToFraction(recipe.servings));
         }
         setIsEditing(!isEditing);
     };
@@ -400,6 +405,28 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
             </>
         )}
         
+        {isEditing && (
+            <div className="mb-8">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Quantité</h2>
+                <div className="flex items-center gap-2 bg-gray-100 p-2 rounded-lg">
+                    <input 
+                        type="text" 
+                        placeholder="Qt" 
+                        value={editingServings} 
+                        onChange={(e) => setEditingServings(e.target.value)} 
+                        className="w-24 p-2 border rounded bg-white text-gray-800 placeholder-gray-400 text-lg" 
+                    />
+                    <input 
+                        type="text" 
+                        placeholder="Unité (ex: personnes)" 
+                        value={editableRecipe.servingsUnit || ''} 
+                        onChange={(e) => setEditableRecipe(prev => ({ ...prev, servingsUnit: e.target.value }))} 
+                        className="flex-grow p-2 border rounded bg-white text-gray-800 placeholder-gray-400 text-lg" 
+                    />
+                </div>
+            </div>
+        )}
+
         {/* Ingredients */}
         <h2 className="text-3xl font-bold text-gray-800 mb-6">Ingrédients</h2>
         {!isEditing && (
@@ -409,6 +436,11 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                     <button onClick={() => setMultiplier(1)} className={`w-full px-4 py-2 rounded-full font-bold transition-all ${multiplier === 1 ? 'bg-white shadow' : 'text-gray-500'}`}>1X</button>
                     <button onClick={() => setMultiplier(2)} className={`w-full px-4 py-2 rounded-full font-bold transition-all ${multiplier === 2 ? 'bg-white shadow' : 'text-gray-500'}`}>2X</button>
                 </div>
+                {recipe.servings > 0 && (
+                    <div className="text-center text-lg text-gray-700 mb-6 -mt-1 py-2">
+                        <span className="font-semibold">Quantité :</span> {getAdjustedQuantity(recipe.servings)} {recipe.servingsUnit || ''}
+                    </div>
+                )}
                 <div className="flex justify-between items-center mb-4 -mx-2">
                      <button onClick={handleToggleCrossAllIngredients} className={`transition-colors p-2 rounded-full ${allIngredientsCrossed ? 'text-lime-500 hover:text-lime-700' : 'text-gray-500 hover:text-gray-800'}`} aria-label="Tout cocher ou décocher les ingrédients">
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
