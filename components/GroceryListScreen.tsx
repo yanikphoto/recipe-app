@@ -12,8 +12,8 @@ type GroceryListScreenProps = {
 const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onBack }) => {
     const [newItem, setNewItem] = useState('');
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const dragItem = useRef<number | null>(null);
-    const dragOverItem = useRef<number | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const longPressTimeoutRef = useRef<number | null>(null);
     const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -31,20 +31,20 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
     };
     
     const handleSort = () => {
-        if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
+        if (dragItem.current === null || dragOverIndex === null || dragItem.current === dragOverIndex) {
             return;
         }
         
         let _items = [...items];
         const draggedItemContent = _items.splice(dragItem.current, 1)[0];
-        _items.splice(dragOverItem.current, 0, draggedItemContent);
+        _items.splice(dragOverIndex, 0, draggedItemContent);
         onReorderItems(_items);
     };
 
     const resetDragState = () => {
         setActiveIndex(null);
+        setDragOverIndex(null);
         dragItem.current = null;
-        dragOverItem.current = null;
         touchStartPosRef.current = null;
         if (longPressTimeoutRef.current) {
             clearTimeout(longPressTimeoutRef.current);
@@ -82,19 +82,19 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x);
         const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y);
 
-        // If scrolling, cancel the long press
         if (longPressTimeoutRef.current && (deltaX > SCROLL_THRESHOLD || deltaY > SCROLL_THRESHOLD)) {
             clearTimeout(longPressTimeoutRef.current);
             longPressTimeoutRef.current = null;
         }
 
-        // If in drag mode, update the drop target
         if (activeIndex !== null) {
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             const overLi = target?.closest('li[data-index]');
             if (overLi instanceof HTMLElement && overLi.dataset.index) {
                 const overIndex = parseInt(overLi.dataset.index, 10);
-                if (!isNaN(overIndex)) dragOverItem.current = overIndex;
+                if (!isNaN(overIndex) && overIndex !== dragOverIndex) {
+                    setDragOverIndex(overIndex);
+                }
             }
         }
     };
@@ -130,35 +130,55 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
             </form>
 
             {items.length > 0 ? (
-                <ul className="space-y-2">
-                    {items.map((item, index) => (
-                        <li 
-                            key={item.id}
-                            data-index={index}
-                            draggable
-                            onDragStart={() => handleDragStart(index)}
-                            onDragEnter={() => (dragOverItem.current = index)}
-                            onDragEnd={handleDragEnd}
-                            onDragOver={(e) => e.preventDefault()}
-                            onTouchStart={(e) => handleTouchStart(index, e)}
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={handleTouchEnd}
-                            style={{ touchAction: 'none' }}
-                            className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-200 ${
-                                activeIndex === index ? 'opacity-75 bg-gray-100 shadow-lg scale-105' : 'bg-white'
-                            }`}
-                        >
-                            <div className="flex items-center">
-                                <span className="text-gray-400 mr-4" aria-label="Réorganiser l'article">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-                                </span>
-                                <span className="text-gray-800 text-lg">{item.name}</span>
-                            </div>
-                            <button onClick={() => onDeleteItem(item.id)} className="text-gray-400 hover:text-red-500" aria-label={`Supprimer ${item.name}`}>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </li>
-                    ))}
+                <ul className="space-y-2 relative">
+                    {items.map((item, index) => {
+                        let transformStyle = '';
+                        const isDragging = activeIndex !== null;
+                        const dragStartIndex = dragItem.current;
+
+                        if (isDragging && dragStartIndex !== null && dragOverIndex !== null && index !== dragStartIndex) {
+                            if (dragStartIndex < dragOverIndex) { // Dragging down
+                                if (index > dragStartIndex && index <= dragOverIndex) {
+                                    transformStyle = '-translate-y-full';
+                                }
+                            } else { // Dragging up
+                                if (index < dragStartIndex && index >= dragOverIndex) {
+                                    transformStyle = 'translate-y-full';
+                                }
+                            }
+                        }
+                        
+                        return (
+                            <li 
+                                key={item.id}
+                                data-index={index}
+                                draggable
+                                onDragStart={() => handleDragStart(index)}
+                                onDragEnter={() => setDragOverIndex(index)}
+                                onDragEnd={handleDragEnd}
+                                onDragOver={(e) => e.preventDefault()}
+                                onTouchStart={(e) => handleTouchStart(index, e)}
+                                onTouchMove={handleTouchMove}
+                                onTouchEnd={handleTouchEnd}
+                                style={{ touchAction: 'none' }}
+                                className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-300 ${
+                                    activeIndex === index 
+                                        ? 'opacity-75 bg-gray-100 shadow-lg scale-105 z-10' 
+                                        : 'bg-white z-0'
+                                } ${transformStyle}`}
+                            >
+                                <div className="flex items-center">
+                                    <span className="text-gray-400 mr-4" aria-label="Réorganiser l'article">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                                    </span>
+                                    <span className="text-gray-800 text-lg">{item.name}</span>
+                                </div>
+                                <button onClick={() => onDeleteItem(item.id)} className="text-gray-400 hover:text-red-500" aria-label={`Supprimer ${item.name}`}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </li>
+                        );
+                    })}
                 </ul>
             ) : (
                 <div className="text-center py-16 text-gray-500">
