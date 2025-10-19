@@ -14,6 +14,7 @@ export type Recipe = {
   ingredients: Ingredient[];
   instructions: string[];
   servings: number;
+  servingsUnit?: string;
   imageBase64?: string;
   updatedAt?: string;
 };
