@@ -8,7 +8,7 @@ type WelcomeScreenProps = {
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ setActiveScreen }) => {
   return (
     <div className="min-h-screen w-full bg-[#F9F9F5] flex flex-col items-center justify-center p-6 text-center">
-      <div className="w-full max-w-xs pt-8">
+      <div className="w-full max-w-xs">
         <img 
           src="https://images.unsplash.com/photo-1543353071-873f17a7a088?q=80&w=2940&auto=format&fit=crop" 
           alt="Mosaïque de plats délicieux" 
@@ -16,9 +16,9 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ setActiveScreen }) => {
         />
       </div>
 
-      <h1 className="text-4xl font-bold text-gray-800 mt-8">Nos Recettes</h1>
+      <h1 className="text-4xl font-bold text-gray-800 mt-4">Nos Recettes</h1>
 
-      <div className="w-full mt-10 space-y-4 max-w-xs">
+      <div className="w-full mt-6 space-y-4 max-w-xs">
         <ActionButton onClick={() => setActiveScreen('add')}>Ajouter une recette</ActionButton>
         <ActionButton onClick={() => setActiveScreen('recipes')}>Parcourir les recettes</ActionButton>
         <ActionButton onClick={() => setActiveScreen('search')}>Chercher une recette</ActionButton>
