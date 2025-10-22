@@ -32,26 +32,32 @@ const ChangeImageModal: React.FC<ChangeImageModalProps> = ({ isOpen, onClose, on
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[60]" onClick={onClose}>
       <div
-        className="bg-white rounded-3xl p-6 m-4 max-w-sm w-full shadow-lg"
+        className="bg-white rounded-t-3xl p-6 pb-8 w-full max-w-lg shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-2xl font-bold text-gray-800 text-center mb-6">Changer l'image</h2>
         <div className="space-y-4">
           <button
             onClick={() => cameraInputRef.current?.click()}
-            className="w-full flex items-center justify-center text-left p-4 bg-[#D4F78F] text-gray-800 font-semibold rounded-2xl shadow-sm hover:bg-[#BDEE63] transition-colors duration-200"
+            className="w-full flex items-center justify-center text-left p-4 bg-[#D4F78F] text-gray-800 font-semibold rounded-2xl shadow-sm hover:bg-[#BDEE63] transition-colors duration-200 text-lg"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             Prendre une photo
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center text-left p-4 bg-gray-200 text-gray-800 font-semibold rounded-2xl shadow-sm hover:bg-gray-300 transition-colors duration-200"
+            className="w-full flex items-center justify-center text-left p-4 bg-gray-200 text-gray-800 font-semibold rounded-2xl shadow-sm hover:bg-gray-300 transition-colors duration-200 text-lg"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
             Télécharger une image
+          </button>
+           <button
+            onClick={onClose}
+            className="w-full flex items-center justify-center text-left p-4 bg-white text-gray-800 font-semibold rounded-2xl shadow-sm hover:bg-gray-100 transition-colors duration-200 mt-6 text-lg"
+          >
+            Annuler
           </button>
         </div>
         <input type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" ref={cameraInputRef} />
