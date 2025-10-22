@@ -286,6 +286,14 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         });
     };
 
+    const autoResizeTextarea = (element: HTMLTextAreaElement | null) => {
+        if (element) {
+            // Reset height to allow shrinking
+            element.style.height = 'auto';
+            element.style.height = `${element.scrollHeight}px`;
+        }
+    };
+
     const handleInstructionChange = (index: number, value: string) => {
         const newInstructions = [...editableRecipe.instructions];
         newInstructions[index] = value;
@@ -421,7 +429,7 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                         placeholder="Unité (ex: personnes)" 
                         value={editableRecipe.servingsUnit || ''} 
                         onChange={(e) => setEditableRecipe(prev => ({ ...prev, servingsUnit: e.target.value }))} 
-                        className="flex-grow p-2 border rounded bg-white text-gray-800 placeholder-gray-400 text-lg" 
+                        className="flex-grow p-2 border rounded bg-white text-gray-800 placeholder-gray-400 text-lg min-w-0" 
                     />
                 </div>
             </div>
@@ -472,14 +480,22 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                     onTouchMove={handleTouchMove}
                     onTouchEnd={() => handleSortEnd('ingredient')}
                     style={{ touchAction: 'none' }}
-                    className={`flex items-center gap-2 bg-gray-100 p-2 rounded-lg transition-shadow duration-200 ${
+                    className={`flex items-start gap-2 bg-gray-100 p-2 rounded-lg transition-shadow duration-200 ${
                         draggedState.type === 'ingredient' && draggedState.index === index ? 'opacity-75 shadow-lg' : ''
                     }`}
                 >
-                    <span className="cursor-grab text-gray-400">☰</span>
-                    <input type="text" placeholder="Qt" value={editingQuantities[ing.id] ?? ''} onChange={(e) => handleQuantityStringChange(ing.id, e.target.value)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
-                    <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientTextChange(index, 'unit', e.target.value)} className="w-20 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
-                    <input type="text" placeholder="Nom de l'ingrédient" value={ing.name} onChange={(e) => handleIngredientTextChange(index, 'name', e.target.value)} className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <span className="cursor-grab text-gray-400 pt-1">☰</span>
+                    <input type="text" placeholder="Qt" value={editingQuantities[ing.id] ?? ''} onChange={(e) => handleQuantityStringChange(ing.id, e.target.value)} className="w-12 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientTextChange(index, 'unit', e.target.value)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                    <textarea
+                        ref={autoResizeTextarea}
+                        placeholder="Nom de l'ingrédient"
+                        value={ing.name}
+                        onChange={(e) => handleIngredientTextChange(index, 'name', e.target.value)}
+                        onInput={(e) => autoResizeTextarea(e.target as HTMLTextAreaElement)}
+                        className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400 min-w-0 resize-none overflow-y-hidden"
+                        rows={1}
+                    />
                     <button onClick={() => handleRemoveIngredient(ing.id, index)} className="text-red-500 p-1">✕</button>
                 </li>
            )) : recipe.ingredients.map(ing => {
@@ -528,7 +544,14 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                    }`}
                 >
                    <span className="cursor-grab text-gray-400 pt-1">☰</span>
-                   <textarea value={step} onChange={(e) => handleInstructionChange(index, e.target.value)} className="w-full p-1 border rounded-md bg-white text-gray-800 placeholder-gray-400" rows={3}></textarea>
+                   <textarea
+                        ref={autoResizeTextarea}
+                        value={step}
+                        onChange={(e) => handleInstructionChange(index, e.target.value)}
+                        onInput={(e) => autoResizeTextarea(e.target as HTMLTextAreaElement)}
+                        className="w-full p-1 border rounded-md bg-white text-gray-800 placeholder-gray-400 resize-none overflow-y-hidden"
+                        rows={1}
+                    ></textarea>
                    <button onClick={() => handleRemoveInstruction(index)} className="text-red-500 p-1">✕</button>
                </li>
            )) : recipe.instructions.map((step, index) => (
