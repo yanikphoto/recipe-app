@@ -12,6 +12,7 @@ type RecipeDetailScreenProps = {
   onUpdateRecipe: (recipe: Recipe) => void;
   groceryList: GroceryListItem[];
   onToggleGroceryItem: (ingredient: Ingredient) => void;
+  recipes: Recipe[];
 };
 
 // --- FRACTION HELPERS ---
@@ -119,7 +120,7 @@ const getMetricDisplay = (ing: Ingredient): string | null => {
     return null;
 }
 
-const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem }) => {
+const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem, recipes }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editableRecipe, setEditableRecipe] = useState<Recipe>(recipe);
     const [editingQuantities, setEditingQuantities] = useState<Record<string, string>>({});
@@ -140,6 +141,11 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
 
     const LONG_PRESS_DURATION = 500; // ms
     const SCROLL_THRESHOLD = 10; // pixels
+
+    const allCategories = useMemo(() => {
+        const categoriesFromRecipes = recipes.flatMap(r => r.categories);
+        return [...new Set([...DEFAULT_CATEGORIES, ...categoriesFromRecipes])];
+    }, [recipes]);
 
     const getAdjustedQuantity = (quantity?: number) => {
         if (quantity === undefined) return '';
@@ -613,7 +619,7 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         {isEditing && <button onClick={handleAddInstruction} className="w-full text-center py-2 bg-lime-100 text-lime-800 rounded-lg font-semibold mt-4">+ Ajouter une étape</button>}
       </div>
     </div>
-    {!isEditing && <AddCategoryModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onAddCategory={handleAddCategory} currentCategories={recipe.categories} suggestedCategories={DEFAULT_CATEGORIES}/>}
+    {!isEditing && <AddCategoryModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onAddCategory={handleAddCategory} currentCategories={recipe.categories} suggestedCategories={allCategories}/>}
     {isEditing && <ChangeImageModal isOpen={isImageModalOpen} onClose={() => setIsImageModalOpen(false)} onImageSelected={handleImageChange} />}
     </>
   );
