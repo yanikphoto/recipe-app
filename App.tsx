@@ -152,7 +152,6 @@ const App: React.FC = () => {
             const localData = getFullLocalData();
 
             // 2. Perform one-time migration for existing base64 images
-            let needsUpdate = false;
             const migratedRecipes = await Promise.all(
                 localData.recipes.map(async (recipe) => {
                     if (recipe.imageUrl && recipe.imageUrl.startsWith('data:image')) {
@@ -161,7 +160,6 @@ const App: React.FC = () => {
                             const base64Data = recipe.imageUrl.split(',')[1];
                             if (base64Data) {
                                 await imageStore.saveImage(newImageId, base64Data);
-                                needsUpdate = true;
                                 return { ...recipe, imageUrl: newImageId };
                             }
                         } catch (error) {
@@ -331,18 +329,21 @@ const App: React.FC = () => {
     };
     
     const addRecipe = (recipe: Recipe) => {
-        const updatedRecipes = [recipe, ...recipes.filter(r => r.id !== recipe.id)];
-        setRecipes(updatedRecipes);
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+        setRecipes(prevRecipes => {
+            const updatedRecipes = [recipe, ...prevRecipes.filter(r => r.id !== recipe.id)];
+            localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+            return updatedRecipes;
+        });
         setCurrentScreen('recipes');
         setIsSearchOpen(false);
     };
 
     const updateRecipe = async (updatedRecipe: Recipe) => {
         let finalRecipe = { ...updatedRecipe, updatedAt: new Date().toISOString() };
+        
+        // This find is safe because it runs before the state update is queued.
         const originalRecipe = recipes.find(r => r.id === updatedRecipe.id);
         
-        // Check if the image has changed. New images will be base64.
         if (originalRecipe && updatedRecipe.imageUrl !== originalRecipe.imageUrl && updatedRecipe.imageUrl.startsWith('data:image')) {
             try {
                 const newImageId = crypto.randomUUID();
@@ -362,12 +363,15 @@ const App: React.FC = () => {
             }
         }
     
-        const updatedRecipes = recipes.map(r => r.id === finalRecipe.id ? finalRecipe : r);
-        setRecipes(updatedRecipes);
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        if (selectedRecipe?.id === finalRecipe.id) {
-            setSelectedRecipe(finalRecipe);
-        }
+        setRecipes(prevRecipes => {
+            const newRecipes = prevRecipes.map(r => (r.id === finalRecipe.id ? finalRecipe : r));
+            localStorage.setItem('family_recipes', JSON.stringify(newRecipes));
+            return newRecipes;
+        });
+
+        setSelectedRecipe(prevSelected => 
+            (prevSelected && prevSelected.id === finalRecipe.id) ? finalRecipe : prevSelected
+        );
     };
 
     const deleteRecipe = (id: string) => {
@@ -376,14 +380,17 @@ const App: React.FC = () => {
             imageStore.deleteImage(recipeToDelete.imageUrl).catch(err => console.error("Failed to delete image from DB:", err));
         }
 
-        const updatedRecipes = recipes.filter(r => r.id !== id);
-        const updatedDeletedIds = [...new Set([...deletedRecipeIds, id])];
-        
-        setRecipes(updatedRecipes);
-        setDeletedRecipeIds(updatedDeletedIds);
-        
-        localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-        localStorage.setItem('family_deleted_recipes', JSON.stringify(updatedDeletedIds));
+        setRecipes(prevRecipes => {
+            const updatedRecipes = prevRecipes.filter(r => r.id !== id);
+            localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
+            return updatedRecipes;
+        });
+
+        setDeletedRecipeIds(prevDeleted => {
+            const updatedDeletedIds = [...new Set([...prevDeleted, id])];
+            localStorage.setItem('family_deleted_recipes', JSON.stringify(updatedDeletedIds));
+            return updatedDeletedIds;
+        });
         
         if (selectedRecipe?.id === id) {
             setCurrentScreen('recipes');
@@ -419,20 +426,24 @@ const App: React.FC = () => {
             completed: false, 
             updatedAt: new Date().toISOString() 
         };
-        const updatedItems = [newItem, ...groceryList];
-        setGroceryList(updatedItems);
-        localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
+        setGroceryList(prevItems => {
+            const updatedItems = [newItem, ...prevItems];
+            localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
+            return updatedItems;
+        });
     };
 
     const deleteGroceryItem = (id: string) => {
-        const updatedItems = groceryList.filter(item => item.id !== id);
-        const updatedDeletedIds = [...new Set([...deletedGroceryIds, id])];
-        
-        setGroceryList(updatedItems);
-        setDeletedGroceryIds(updatedDeletedIds);
-
-        localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-        localStorage.setItem('family_deleted_grocery', JSON.stringify(updatedDeletedIds));
+        setGroceryList(prevItems => {
+            const updatedItems = prevItems.filter(item => item.id !== id);
+            localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
+            return updatedItems;
+        });
+        setDeletedGroceryIds(prevDeleted => {
+            const updatedDeletedIds = [...new Set([...prevDeleted, id])];
+            localStorage.setItem('family_deleted_grocery', JSON.stringify(updatedDeletedIds));
+            return updatedDeletedIds;
+        });
     };
 
     const reorderGroceryItems = (reorderedList: GroceryListItem[]) => {
@@ -480,6 +491,7 @@ const App: React.FC = () => {
                         onUpdateRecipe={updateRecipe}
                         groceryList={groceryList}
                         onToggleGroceryItem={toggleGroceryItemFromIngredient}
+                        recipes={recipes}
                     /> 
                     : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
             default:
