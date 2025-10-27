@@ -39,11 +39,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-3xl p-6 m-4 max-w-sm w-full shadow-lg transform transition-all duration-300 scale-100"
+        className="bg-white rounded-3xl p-6 m-4 max-w-sm w-full shadow-lg flex flex-col max-h-[80vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">Ajouter une catégorie</h2>
+        <div className="flex-shrink-0 flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-gray-800 whitespace-nowrap">Ajouter une catégorie</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -51,33 +51,35 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-6">
-            {availableSuggestions.map((sugg) => (
-              <button
-                key={sugg}
-                onClick={() => handleAddSuggestedCategory(sugg)}
-                className="bg-[#D4F78F] text-gray-800 font-semibold px-4 py-2 rounded-xl hover:bg-[#BDEE63] transition-colors"
-              >
-                {sugg}
-              </button>
-            ))}
-        </div>
+        <div className="flex-grow overflow-y-auto">
+            <div className="flex flex-wrap gap-2 mb-6">
+                {availableSuggestions.map((sugg) => (
+                  <button
+                    key={sugg}
+                    onClick={() => handleAddSuggestedCategory(sugg)}
+                    className="bg-[#D4F78F] text-gray-800 font-semibold px-4 py-2 rounded-xl hover:bg-[#BDEE63] transition-colors"
+                  >
+                    {sugg}
+                  </button>
+                ))}
+            </div>
 
-        <form onSubmit={handleAddCustomCategory} className="flex gap-2">
-            <input
-              type="text"
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
-              placeholder="Ex: Végétarien"
-              className="w-full p-3 text-gray-700 bg-white border border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63]"
-            />
-            <button
-              type="submit"
-              className="bg-gray-200 text-gray-800 font-bold px-5 rounded-2xl shadow-sm hover:bg-gray-300 transition-colors"
-            >
-              Ajouter
-            </button>
-        </form>
+            <form onSubmit={handleAddCustomCategory} className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  placeholder="Ex: Végétarien"
+                  className="w-full p-3 text-gray-700 bg-white border border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63]"
+                />
+                <button
+                  type="submit"
+                  className="bg-gray-200 text-gray-800 font-bold px-5 rounded-2xl shadow-sm hover:bg-gray-300 transition-colors"
+                >
+                  Ajouter
+                </button>
+            </form>
+        </div>
       </div>
     </div>
   );
