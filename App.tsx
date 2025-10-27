@@ -55,15 +55,22 @@ const App: React.FC = () => {
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
     const getFullLocalData = () => {
-        const localRecipesJSON = localStorage.getItem('family_recipes');
-        const localGroceryJSON = localStorage.getItem('family_grocery');
-        const localDeletedRecipesJSON = localStorage.getItem('family_deleted_recipes');
-        const localDeletedGroceryJSON = localStorage.getItem('family_deleted_grocery');
+        const safeJsonParse = (key: string, defaultValue: any[] = []) => {
+            try {
+                const item = localStorage.getItem(key);
+                const parsed = item ? JSON.parse(item) : defaultValue;
+                return Array.isArray(parsed) ? parsed : defaultValue;
+            } catch (e) {
+                console.error(`Error parsing JSON from localStorage key "${key}", clearing item:`, e);
+                localStorage.removeItem(key);
+                return defaultValue;
+            }
+        };
 
-        const localRecipes = localRecipesJSON ? JSON.parse(localRecipesJSON) : [];
-        const localGrocery = localGroceryJSON ? JSON.parse(localGroceryJSON) : [];
-        const localDeletedRecipes = localDeletedRecipesJSON ? JSON.parse(localDeletedRecipesJSON) : [];
-        const localDeletedGrocery = localDeletedGroceryJSON ? JSON.parse(localDeletedGroceryJSON) : [];
+        const localRecipes = safeJsonParse('family_recipes');
+        const localGrocery = safeJsonParse('family_grocery');
+        const localDeletedRecipes = safeJsonParse('family_deleted_recipes');
+        const localDeletedGrocery = safeJsonParse('family_deleted_grocery');
         
         return {
             recipes: localRecipes.filter((r: Recipe) => r && r.id),
