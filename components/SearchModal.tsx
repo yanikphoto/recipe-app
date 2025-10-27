@@ -96,7 +96,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onCl
                             <ul className="space-y-3">
                                 {filteredRecipes.map(recipe => (
                                     <li key={recipe.id} onClick={() => onSelectRecipe(recipe)} className="flex items-center bg-white p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
-                                        <StoredImage imageId={recipe.imageUrl} alt={recipe.title} className="w-14 h-14 rounded-lg object-cover mr-4"/>
+                                        <StoredImage imageId={recipe.imageUrl} alt={recipe.title} className="w-11 h-11 rounded-lg object-cover mr-4"/>
                                         <div>
                                             <h3 className="font-semibold text-gray-800">{recipe.title}</h3>
                                             <p className="text-sm text-gray-500">{recipe.categories.join(', ')}</p>

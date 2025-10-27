@@ -413,7 +413,7 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
   return (
     <>
     <div className="bg-[#F9F9F5] min-h-screen">
-      <div className="relative h-80">
+      <div className="relative h-64">
         {isEditing && editableRecipe.imageUrl.startsWith('data:') ? (
             <img src={editableRecipe.imageUrl} alt={editableRecipe.title} className="absolute inset-0 w-full h-full object-cover" />
         ) : (
