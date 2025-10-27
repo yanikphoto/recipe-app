@@ -42,8 +42,8 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         className="bg-white rounded-3xl p-6 m-4 max-w-sm w-full shadow-lg transform transition-all duration-300 scale-100"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-800">Ajouter une catégorie</h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Ajouter une catégorie</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -51,8 +51,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
           </button>
         </div>
 
-        <div>
-          <div className="flex flex-wrap gap-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6">
             {availableSuggestions.map((sugg) => (
               <button
                 key={sugg}
@@ -62,12 +61,9 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 {sugg}
               </button>
             ))}
-          </div>
         </div>
 
-        <div>
-          <h3 className="text-lg font-semibold text-gray-600 mb-3">Ajouter une nouvelle</h3>
-          <form onSubmit={handleAddCustomCategory} className="flex gap-2">
+        <form onSubmit={handleAddCustomCategory} className="flex gap-2">
             <input
               type="text"
               value={newCategory}
@@ -81,8 +77,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
             >
               Ajouter
             </button>
-          </form>
-        </div>
+        </form>
       </div>
     </div>
   );
