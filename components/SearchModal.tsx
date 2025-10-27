@@ -21,8 +21,11 @@ const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onCl
         return recipes.filter(recipe => {
             const lowerCaseSearchTerm = searchTerm.toLowerCase();
             const matchesCategory = selectedCategory ? recipe.categories.includes(selectedCategory) : true;
+            
             const matchesSearchTerm = searchTerm 
-                ? recipe.title.toLowerCase().includes(lowerCaseSearchTerm) || recipe.categories.some(c => c.toLowerCase().includes(lowerCaseSearchTerm))
+                ? recipe.title.toLowerCase().includes(lowerCaseSearchTerm) || 
+                  recipe.categories.some(c => c.toLowerCase().includes(lowerCaseSearchTerm)) ||
+                  recipe.ingredients.some(ing => !ing.isSectionHeader && ing.name.toLowerCase().includes(lowerCaseSearchTerm))
                 : true;
             
             return matchesCategory && matchesSearchTerm;
@@ -65,7 +68,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onCl
                 <div className="relative mb-5">
                     <input
                         type="search"
-                        placeholder="Nom de la recette..."
+                        placeholder="Recette, catégorie, ingrédient..."
                         value={searchTerm}
                         onChange={handleSearchChange}
                         className="w-full p-4 pl-12 text-lg text-gray-800 bg-white border-2 border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#BDEE63] focus:border-[#BDEE63] transition-colors"
