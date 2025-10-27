@@ -171,14 +171,16 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     const allIngredientsOnList = useMemo(() => {
         if (recipe.ingredients.length === 0) return false;
         return recipe.ingredients.every(ing => {
+            if (ing.isSectionHeader) return true;
             const adjustedIngredient = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
             return groceryList.some(item => item.name.toLowerCase().includes(ing.name.toLowerCase()));
         });
     }, [recipe.ingredients, groceryList, multiplier]);
 
     const handleToggleAllToList = () => {
-        const areAllOnList = recipe.ingredients.every(isIngredientInGroceryList);
+        const areAllOnList = recipe.ingredients.filter(i => !i.isSectionHeader).every(isIngredientInGroceryList);
         recipe.ingredients.forEach(ing => {
+            if (ing.isSectionHeader) return;
             const adjustedIngredient = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
             const isOnList = isIngredientInGroceryList(adjustedIngredient);
             if ((areAllOnList && isOnList) || (!areAllOnList && !isOnList)) {
@@ -188,15 +190,16 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     };
     
     const allIngredientsCrossed = useMemo(() => {
-        if (recipe.ingredients.length === 0) return false;
-        return crossedIngredients.size === recipe.ingredients.length;
-    }, [recipe.ingredients.length, crossedIngredients.size]);
+        const totalIngredients = recipe.ingredients.filter(ing => !ing.isSectionHeader).length;
+        if (totalIngredients === 0) return false;
+        return crossedIngredients.size === totalIngredients;
+    }, [recipe.ingredients, crossedIngredients.size]);
 
     const handleToggleCrossAllIngredients = () => {
         if (allIngredientsCrossed) {
             setCrossedIngredients(new Set());
         } else {
-            const allIngredientIds = new Set(recipe.ingredients.map(ing => ing.id));
+            const allIngredientIds = new Set(recipe.ingredients.filter(ing => !ing.isSectionHeader).map(ing => ing.id));
             setCrossedIngredients(allIngredientIds);
         }
     };
@@ -223,7 +226,10 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     };
 
     const handleShare = async () => {
-        const ingredientsText = recipe.ingredients.map(ing => `• ${getAdjustedQuantity(ing.quantity)} ${ing.unit || ''} ${ing.name}`.trim()).join('\n');
+        const ingredientsText = recipe.ingredients.map(ing => {
+            if (ing.isSectionHeader) return `\n${ing.name}:`;
+            return `• ${getAdjustedQuantity(ing.quantity)} ${ing.unit || ''} ${ing.name}`.trim()
+        }).join('\n');
         const instructionsText = recipe.instructions.map((step, index) => `${index + 1}. ${step}`).join('\n');
         const shareData = { title: recipe.title, text: `Découvrez cette recette: ${recipe.title}\n\nIngrédients:\n${ingredientsText}\n\nPréparation:\n${instructionsText}` };
         if (navigator.share) {
@@ -236,6 +242,7 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         if (isEditing) {
             const updatedRecipe = { ...editableRecipe };
             updatedRecipe.ingredients = editableRecipe.ingredients.map(ing => {
+                if (ing.isSectionHeader) return ing;
                 const quantityStr = editingQuantities[ing.id];
                 if (quantityStr !== undefined) {
                     const numericQuantity = fractionToNumber(quantityStr);
@@ -254,7 +261,9 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         } else {
             setEditableRecipe(recipe);
             const initialQuantities = recipe.ingredients.reduce((acc, ing) => {
-                acc[ing.id] = numberToFraction(ing.quantity);
+                if (!ing.isSectionHeader) {
+                    acc[ing.id] = numberToFraction(ing.quantity);
+                }
                 return acc;
             }, {} as Record<string, string>);
             setEditingQuantities(initialQuantities);
@@ -286,6 +295,11 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         const newIngredient: Ingredient = { id: crypto.randomUUID(), name: '', quantity: undefined, unit: '' };
         setEditableRecipe(prev => ({ ...prev, ingredients: [...prev.ingredients, newIngredient] }));
         setEditingQuantities(prev => ({...prev, [newIngredient.id]: ''}));
+    };
+
+    const handleAddSection = () => {
+        const newSection: Ingredient = { id: crypto.randomUUID(), name: 'Nouvelle section', isSectionHeader: true };
+        setEditableRecipe(prev => ({ ...prev, ingredients: [...prev.ingredients, newSection] }));
     };
 
     const handleRemoveIngredient = (id: string, index: number) => {
@@ -515,40 +529,81 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
         )}
 
         <ul className="space-y-4 mb-8">
-           {isEditing ? editableRecipe.ingredients.map((ing, index) => (
-                <li 
-                    key={ing.id} 
-                    data-index={index}
-                    draggable 
-                    onDragStart={() => dragItem.current = index} 
-                    onDragEnter={() => dragOverItem.current = index} 
-                    onDragEnd={() => handleDragEnd('ingredient')} 
-                    onDragOver={(e) => e.preventDefault()}
-                    className={`flex items-start gap-2 bg-gray-100 p-2 rounded-lg transition-shadow duration-200 ${
-                        draggedState.type === 'ingredient' && draggedState.index === index ? 'opacity-75 shadow-lg' : ''
-                    }`}
-                >
-                    <span 
-                        className="cursor-grab text-gray-400 pt-1"
-                        style={{ touchAction: 'none' }}
-                        onTouchStart={(e) => handleTouchStart(index, 'ingredient', e)}
-                        onTouchMove={handleTouchMove}
-                        onTouchEnd={handleTouchEnd}
-                    >☰</span>
-                    <input type="text" placeholder="Qt" value={editingQuantities[ing.id] ?? ''} onChange={(e) => handleQuantityStringChange(ing.id, e.target.value)} className="w-12 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
-                    <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientTextChange(index, 'unit', e.target.value)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
-                    <textarea
-                        ref={autoResizeTextarea}
-                        placeholder="Nom de l'ingrédient"
-                        value={ing.name}
-                        onChange={(e) => handleIngredientTextChange(index, 'name', e.target.value)}
-                        onInput={(e) => autoResizeTextarea(e.target as HTMLTextAreaElement)}
-                        className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400 min-w-0 resize-none overflow-y-hidden"
-                        rows={1}
-                    />
-                    <button onClick={() => handleRemoveIngredient(ing.id, index)} className="text-red-500 p-1">✕</button>
-                </li>
-           )) : recipe.ingredients.map(ing => {
+           {isEditing ? editableRecipe.ingredients.map((ing, index) => {
+                if (ing.isSectionHeader) {
+                    return (
+                        <li 
+                            key={ing.id} 
+                            data-index={index}
+                            draggable 
+                            onDragStart={() => dragItem.current = index} 
+                            onDragEnter={() => dragOverItem.current = index} 
+                            onDragEnd={() => handleDragEnd('ingredient')} 
+                            onDragOver={(e) => e.preventDefault()}
+                            className={`flex items-center gap-2 bg-lime-50 p-2 rounded-lg transition-shadow duration-200 ${
+                                draggedState.type === 'ingredient' && draggedState.index === index ? 'opacity-75 shadow-lg' : ''
+                            }`}
+                        >
+                            <span 
+                                className="cursor-grab text-gray-400"
+                                style={{ touchAction: 'none' }}
+                                onTouchStart={(e) => handleTouchStart(index, 'ingredient', e as any)}
+                                onTouchMove={handleTouchMove as any}
+                                onTouchEnd={handleTouchEnd}
+                            >☰</span>
+                            <input 
+                                type="text" 
+                                placeholder="Titre de la section" 
+                                value={ing.name} 
+                                onChange={(e) => handleIngredientTextChange(index, 'name', e.target.value)}
+                                className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400 font-bold"
+                            />
+                            <button onClick={() => handleRemoveIngredient(ing.id, index)} className="text-red-500 p-1">✕</button>
+                        </li>
+                    );
+                }
+                return (
+                    <li 
+                        key={ing.id} 
+                        data-index={index}
+                        draggable 
+                        onDragStart={() => dragItem.current = index} 
+                        onDragEnter={() => dragOverItem.current = index} 
+                        onDragEnd={() => handleDragEnd('ingredient')} 
+                        onDragOver={(e) => e.preventDefault()}
+                        className={`flex items-start gap-2 bg-gray-100 p-2 rounded-lg transition-shadow duration-200 ${
+                            draggedState.type === 'ingredient' && draggedState.index === index ? 'opacity-75 shadow-lg' : ''
+                        }`}
+                    >
+                        <span 
+                            className="cursor-grab text-gray-400 pt-1"
+                            style={{ touchAction: 'none' }}
+                            onTouchStart={(e) => handleTouchStart(index, 'ingredient', e)}
+                            onTouchMove={handleTouchMove as any}
+                            onTouchEnd={handleTouchEnd}
+                        >☰</span>
+                        <input type="text" placeholder="Qt" value={editingQuantities[ing.id] ?? ''} onChange={(e) => handleQuantityStringChange(ing.id, e.target.value)} className="w-12 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                        <input type="text" placeholder="Unité" value={ing.unit || ''} onChange={(e) => handleIngredientTextChange(index, 'unit', e.target.value)} className="w-16 p-1 border rounded bg-white text-gray-800 placeholder-gray-400" />
+                        <textarea
+                            ref={autoResizeTextarea}
+                            placeholder="Nom de l'ingrédient"
+                            value={ing.name}
+                            onChange={(e) => handleIngredientTextChange(index, 'name', e.target.value)}
+                            onInput={(e) => autoResizeTextarea(e.target as HTMLTextAreaElement)}
+                            className="flex-grow p-1 border rounded bg-white text-gray-800 placeholder-gray-400 min-w-0 resize-none overflow-y-hidden"
+                            rows={1}
+                        />
+                        <button onClick={() => handleRemoveIngredient(ing.id, index)} className="text-red-500 p-1">✕</button>
+                    </li>
+                );
+           }) : recipe.ingredients.map(ing => {
+               if (ing.isSectionHeader) {
+                   return (
+                       <li key={ing.id}>
+                           <span className="text-xl font-bold text-gray-800 bg-gray-100 rounded-lg px-4 py-2 inline-block">{ing.name}</span>
+                       </li>
+                   );
+               }
                const ingredientForList = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
                const isOnGroceryList = isIngredientInGroceryList(ingredientForList);
                return (
@@ -571,7 +626,12 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                )
            })}
         </ul>
-        {isEditing && <button onClick={handleAddIngredient} className="w-full text-center py-2 bg-lime-100 text-lime-800 rounded-lg font-semibold">+ Ajouter un ingrédient</button>}
+        {isEditing && (
+            <div className="space-y-2">
+                <button onClick={handleAddIngredient} className="w-full text-center py-2 bg-lime-100 text-lime-800 rounded-lg font-semibold">+ Ajouter un ingrédient</button>
+                <button onClick={handleAddSection} className="w-full text-center py-2 bg-gray-200 text-gray-800 rounded-lg font-semibold">+ Ajouter une section</button>
+            </div>
+        )}
 
         {/* Preparation */}
         <h2 className="text-3xl font-bold text-gray-800 my-6">Préparation</h2>
@@ -593,7 +653,7 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                         className="cursor-grab text-gray-400 pt-1"
                         style={{ touchAction: 'none' }}
                         onTouchStart={(e) => handleTouchStart(index, 'instruction', e)}
-                        onTouchMove={handleTouchMove}
+                        onTouchMove={handleTouchMove as any}
                         onTouchEnd={handleTouchEnd}
                     >☰</span>
                    <textarea
