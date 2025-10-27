@@ -4,6 +4,7 @@ export type Ingredient = {
   name: string;
   quantity?: number;
   unit?: string;
+  isSectionHeader?: boolean;
 };
 
 export type Recipe = {
