@@ -19,13 +19,14 @@ const recipeSchema = {
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    name: { type: Type.STRING, description: "Name of the ingredient." },
-                    quantity: { type: Type.NUMBER, description: "Quantity of the ingredient." },
-                    unit: { type: Type.STRING, description: "Unit for the quantity (e.g., g, ml, cup, tbsp)." },
+                    name: { type: Type.STRING, description: "Name of the ingredient, or the title of a section if isSectionHeader is true." },
+                    quantity: { type: Type.NUMBER, description: "Quantity of the ingredient. Omit for section headers." },
+                    unit: { type: Type.STRING, description: "Unit for the quantity (e.g., g, ml, cup, tbsp). Omit for section headers." },
+                    isSectionHeader: { type: Type.BOOLEAN, description: "Set to true if this item is a section title (e.g., 'Marinade')." },
                 },
                 required: ['name'],
             },
-            description: "List of ingredients for the recipe."
+            description: "List of ingredients for the recipe. Can include section headers."
         },
         instructions: { 
             type: Type.ARRAY, 
@@ -54,7 +55,7 @@ async function parseRecipeFromImageInternal(imagePart: { inlineData: { data: str
         contents: {
             parts: [
                 imagePart,
-                { text: `Extrais les détails de la recette de cette image. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions (servings) et son unité (servingsUnit, ex: 'personnes'), les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si le nombre de portions n'est pas explicitement mentionné, omets les champs 'servings' et 'servingsUnit'. Pour les autres valeurs non présentes, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Note : la catégorie 'Déjeuner' désigne le petit-déjeuner (le repas du matin). Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.` }
+                { text: `Extrais les détails de la recette de cette image. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions (servings) et son unité (servingsUnit, ex: 'personnes'), les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Pour les ingrédients, s'ils sont groupés en sections (par ex. 'Marinade', 'Sauce'), représente ces sections comme des éléments dans la liste d'ingrédients avec 'isSectionHeader' à true et le titre de la section dans le champ 'name'. Les ingrédients qui suivent un tel en-tête appartiennent à cette section. Si le nombre de portions n'est pas explicitement mentionné, omets les champs 'servings' et 'servingsUnit'. Pour les autres valeurs non présentes, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Note : la catégorie 'Déjeuner' désigne le petit-déjeuner (le repas du matin). Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.` }
             ]
         },
         config: {
@@ -73,7 +74,7 @@ async function parseRecipeFromImageInternal(imagePart: { inlineData: { data: str
 async function parseRecipeFromUrlInternal(url: string, allCategories: string[]) {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `Extrais les détails de la recette de l'URL suivante : ${url}. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions (servings) et son unité (servingsUnit, ex: 'personnes'), les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Si le nombre de portions n'est pas explicitement mentionné, omets les champs 'servings' et 'servingsUnit'. Pour les autres valeurs non présentes, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Note : la catégorie 'Déjeuner' désigne le petit-déjeuner (le repas du matin). Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.`,
+        contents: `Extrais les détails de la recette de l'URL suivante : ${url}. Fournis la réponse au format JSON. La recette doit inclure le titre, les catégories, le nombre de portions (servings) et son unité (servingsUnit, ex: 'personnes'), les ingrédients (avec nom, quantité et unité), les instructions et une invite de génération d'image (imagePrompt). Pour les ingrédients, s'ils sont groupés en sections (par ex. 'Marinade', 'Sauce'), représente ces sections comme des éléments dans la liste d'ingrédients avec 'isSectionHeader' à true et le titre de la section dans le champ 'name'. Les ingrédients qui suivent un tel en-tête appartiennent à cette section. Si le nombre de portions n'est pas explicitement mentionné, omets les champs 'servings' et 'servingsUnit'. Pour les autres valeurs non présentes, essaie de faire une estimation raisonnable. Pour les catégories, choisis UNIQUEMENT parmi la liste suivante : ${allCategories.join(', ')}. Note : la catégorie 'Déjeuner' désigne le petit-déjeuner (le repas du matin). Si aucune catégorie de la liste ne correspond, renvoie un tableau de catégories vide. La réponse doit être entièrement en français, sauf pour 'imagePrompt' qui doit être en anglais.`,
         config: {
             responseMimeType: "application/json",
             responseSchema: recipeSchemaWithImagePrompt,
