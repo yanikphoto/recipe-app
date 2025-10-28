@@ -48,14 +48,14 @@ const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onCl
 
     return (
         <div 
-            className="fixed inset-0 bg-gray-900/60 z-50 flex items-start justify-center pt-16 md:pt-24" 
+            className="fixed inset-0 bg-gray-900/60 z-50 flex items-start justify-center pt-16 md:pt-24 pb-8" 
             onClick={onClose} 
             role="dialog" 
             aria-modal="true" 
             aria-labelledby="search-modal-title"
         >
             <div 
-                className="bg-white rounded-3xl w-[92%] max-w-lg p-5 shadow-2xl" 
+                className="bg-white rounded-3xl w-[92%] max-w-lg p-5 shadow-2xl max-h-full overflow-y-auto" 
                 onClick={e => e.stopPropagation()}
             >
                 <div className="flex justify-between items-center mb-4">
@@ -90,7 +90,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onCl
                     ))}
                 </div>
                 
-                <div className="max-h-[50vh] overflow-y-auto -mr-2 pr-2">
+                <div>
                     {showResults ? (
                         filteredRecipes.length > 0 ? (
                             <ul className="space-y-3">
