@@ -93,10 +93,10 @@ const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onCl
                 <div>
                     {showResults ? (
                         filteredRecipes.length > 0 ? (
-                            <ul className="space-y-2">
+                            <ul className="space-y-1">
                                 {filteredRecipes.map(recipe => (
-                                    <li key={recipe.id} onClick={() => onSelectRecipe(recipe)} className="flex items-center gap-4 bg-white p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
-                                        <div className="w-5/12 flex-shrink-0">
+                                    <li key={recipe.id} onClick={() => onSelectRecipe(recipe)} className="flex items-center gap-3 bg-white p-2 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
+                                        <div className="w-1/2 flex-shrink-0">
                                             <StoredImage imageId={recipe.imageUrl} alt={recipe.title} className="w-full aspect-square rounded-lg object-cover"/>
                                         </div>
                                         <div className="flex-1">
