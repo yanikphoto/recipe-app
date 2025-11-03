@@ -1,25 +1,35 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { GroceryListItem } from '../types';
 
 type GroceryListScreenProps = {
   items: GroceryListItem[];
   onAddItem: (name: string) => void;
   onDeleteItem: (id: string) => void;
+  onUpdateItem: (id: string, name: string) => void;
   onReorderItems: (items: GroceryListItem[]) => void;
   onBack: () => void;
 };
 
-const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onReorderItems, onBack }) => {
+const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onUpdateItem, onReorderItems, onBack }) => {
     const [newItem, setNewItem] = useState('');
+    const [editingItemId, setEditingItemId] = useState<string | null>(null);
+    const [editingItemText, setEditingItemText] = useState('');
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const dragItem = useRef<number | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const editInputRef = useRef<HTMLInputElement>(null);
     const longPressTimeoutRef = useRef<number | null>(null);
     const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
     const LONG_PRESS_DURATION = 500; // ms
     const SCROLL_THRESHOLD = 10; // pixels
+
+    useEffect(() => {
+        if (editingItemId && editInputRef.current) {
+            editInputRef.current.focus();
+        }
+    }, [editingItemId]);
 
     const addItem = (e: React.FormEvent) => {
         e.preventDefault();
@@ -30,6 +40,24 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
         }
     };
     
+    const handleStartEditing = (item: GroceryListItem) => {
+        setEditingItemId(item.id);
+        setEditingItemText(item.name);
+    };
+
+    const handleSaveEdit = () => {
+        if (editingItemId && editingItemText.trim()) {
+            onUpdateItem(editingItemId, editingItemText.trim());
+        }
+        setEditingItemId(null);
+        setEditingItemText('');
+    };
+
+    const handleCancelEdit = () => {
+        setEditingItemId(null);
+        setEditingItemText('');
+    };
+
     const handleSort = () => {
         if (dragItem.current === null || dragOverIndex === null || dragItem.current === dragOverIndex) {
             return;
@@ -132,6 +160,32 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
             {items.length > 0 ? (
                 <ul className="space-y-2 relative">
                     {items.map((item, index) => {
+                        if (item.id === editingItemId) {
+                             return (
+                                <li key={item.id} className="flex items-center justify-between p-3 rounded-2xl shadow-sm bg-white ring-2 ring-[#BDEE63]">
+                                    <input
+                                        ref={editInputRef}
+                                        type="text"
+                                        value={editingItemText}
+                                        onChange={(e) => setEditingItemText(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSaveEdit();
+                                            if (e.key === 'Escape') handleCancelEdit();
+                                        }}
+                                        className="flex-grow bg-transparent text-gray-800 text-lg focus:outline-none"
+                                    />
+                                    <div className="flex items-center">
+                                        <button onClick={handleSaveEdit} className="text-green-500 hover:text-green-600 p-1" aria-label="Sauvegarder les modifications">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                        </button>
+                                        <button onClick={handleCancelEdit} className="text-gray-400 hover:text-gray-600 p-1" aria-label="Annuler les modifications">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+                                </li>
+                            );
+                        }
+
                         let transformStyle = '';
                         const isDragging = activeIndex !== null;
                         const dragStartIndex = dragItem.current;
@@ -152,25 +206,27 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
                             <li 
                                 key={item.id}
                                 data-index={index}
-                                draggable
-                                onDragStart={() => handleDragStart(index)}
-                                onDragEnter={() => setDragOverIndex(index)}
+                                draggable={!editingItemId}
+                                onDragStart={() => !editingItemId && handleDragStart(index)}
+                                onDragEnter={() => !editingItemId && setDragOverIndex(index)}
                                 onDragEnd={handleDragEnd}
                                 onDragOver={(e) => e.preventDefault()}
-                                onTouchStart={(e) => handleTouchStart(index, e)}
+                                onTouchStart={(e) => !editingItemId && handleTouchStart(index, e)}
                                 onTouchMove={handleTouchMove}
                                 onTouchEnd={handleTouchEnd}
-                                className={`flex items-center justify-between p-3 rounded-2xl shadow-sm cursor-grab active:cursor-grabbing transition-all duration-300 ${
+                                className={`flex items-center justify-between p-3 rounded-2xl shadow-sm transition-all duration-300 ${
                                     activeIndex === index 
                                         ? 'opacity-75 bg-gray-100 shadow-lg scale-105 z-10' 
                                         : 'bg-white z-0'
-                                } ${transformStyle}`}
+                                } ${transformStyle} ${!editingItemId && 'active:cursor-grabbing'}`}
                             >
-                                <div className="flex items-center">
-                                    <span className="text-gray-400 mr-4" aria-label="Réorganiser l'article">
+                                <div className="flex items-center flex-grow min-w-0">
+                                    <span className={`text-gray-400 mr-4 ${!editingItemId ? 'cursor-grab' : ''}`} aria-label="Réorganiser l'article">
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                                     </span>
-                                    <span className="text-gray-800 text-lg">{item.name}</span>
+                                    <div onClick={() => !editingItemId && handleStartEditing(item)} className={`w-full ${!editingItemId ? 'cursor-pointer' : ''}`}>
+                                        <span className="text-gray-800 text-lg">{item.name}</span>
+                                    </div>
                                 </div>
                                 <button onClick={() => onDeleteItem(item.id)} className="text-gray-400 hover:text-red-500" aria-label={`Supprimer ${item.name}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
