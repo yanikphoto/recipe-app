@@ -440,6 +440,16 @@ const App: React.FC = () => {
         });
     };
 
+    const updateGroceryItem = (id: string, newName: string) => {
+        setGroceryList(prevItems => {
+            const updatedItems = prevItems.map(item =>
+                item.id === id ? { ...item, name: newName, updatedAt: new Date().toISOString() } : item
+            );
+            localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
+            return updatedItems;
+        });
+    };
+
     const deleteGroceryItem = (id: string) => {
         setGroceryList(prevItems => {
             const updatedItems = prevItems.filter(item => item.id !== id);
@@ -473,6 +483,7 @@ const App: React.FC = () => {
                     items={groceryList} 
                     onAddItem={addCustomGroceryItem}
                     onDeleteItem={deleteGroceryItem}
+                    onUpdateItem={updateGroceryItem}
                     onReorderItems={reorderGroceryItems}
                     onBack={() => setActiveScreen('recipes')}
                 />;
