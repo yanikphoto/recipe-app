@@ -245,9 +245,18 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
                 if (ing.isSectionHeader) return ing;
                 const quantityStr = editingQuantities[ing.id];
                 if (quantityStr !== undefined) {
+                    // If the user cleared the quantity field, save it as undefined.
+                    if (quantityStr.trim() === '') {
+                        return { ...ing, quantity: undefined };
+                    }
                     const numericQuantity = fractionToNumber(quantityStr);
-                    const originalIngredient = recipe.ingredients.find(origIng => origIng.id === ing.id);
-                    return { ...ing, quantity: isNaN(numericQuantity) ? originalIngredient?.quantity : numericQuantity };
+                    // If the input is not a valid number (e.g., "abc"), revert to the original quantity.
+                    if (isNaN(numericQuantity)) {
+                        const originalIngredient = recipe.ingredients.find(origIng => origIng.id === ing.id);
+                        return { ...ing, quantity: originalIngredient?.quantity };
+                    }
+                    // Otherwise, save the parsed valid quantity.
+                    return { ...ing, quantity: numericQuantity };
                 }
                 return ing;
             });
