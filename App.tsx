@@ -11,6 +11,7 @@ import BottomNav from './components/BottomNav';
 import SearchModal from './components/SearchModal';
 import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
+import { numberToFraction } from './services/fractionUtils';
 
 const App: React.FC = () => {
     const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
@@ -406,17 +407,8 @@ const App: React.FC = () => {
         setRecipeToDelete(null);
     };
     
-    const getAdjustedQuantityString = (quantity?: number) => {
-        if (quantity === undefined) return '';
-        if (quantity % 1 === 0.5) return `${Math.floor(quantity) || ''} ½`;
-        if (quantity % 1 === 0.25) return `${Math.floor(quantity) || ''} ¼`;
-        if (quantity % 1 === 0.75) return `${Math.floor(quantity) || ''} ¾`;
-        if (quantity % 1 !== 0) return quantity.toFixed(2);
-        return String(quantity);
-    };
-
     const toggleGroceryItemFromIngredient = (ingredient: Ingredient) => {
-        const ingredientString = `${ingredient.quantity ? `${getAdjustedQuantityString(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
+        const ingredientString = `${ingredient.quantity ? `${numberToFraction(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
         const existingItem = groceryList.find(item => item.name.toLowerCase() === ingredientString.toLowerCase());
 
         if (existingItem) {
