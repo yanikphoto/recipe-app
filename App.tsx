@@ -184,7 +184,7 @@ const App: React.FC = () => {
             
             // 4. Start sync process
             await syncData(); // Initial sync
-            intervalId = window.setInterval(syncData, 30000);
+            intervalId = window.setInterval(syncData, 15000);
             window.addEventListener('online', onlineHandler);
         };
 
