@@ -74,7 +74,6 @@ export const apiSync = {
                     try {
                         const blob = await imageStore.getImage(recipe.imageUrl);
                         if (blob) {
-                            // FIX: Corrected an undeclared variable 'base64' to the intended 'imageBase64' when reading image data for synchronization.
                             imageBase64 = await new Promise<string>((resolve, reject) => {
                                 const reader = new FileReader();
                                 reader.onloadend = () => {
