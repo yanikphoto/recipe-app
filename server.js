@@ -12,6 +12,16 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const DATA_FILE = path.join(__dirname, 'data.json');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+
+// Ensure uploads directory exists on startup
+if (!fsSync.existsSync(UPLOADS_DIR)) {
+    fsSync.mkdirSync(UPLOADS_DIR);
+}
+
+// Serve image files statically
+app.use('/uploads', express.static(UPLOADS_DIR));
+
 
 // --- Simple Async Lock to prevent race conditions ---
 let isLocked = false;
@@ -58,20 +68,59 @@ const writeData = (data) => withLock(async () => {
     }
 });
 
-// HARDENED: Merge recipes properly, filtering out invalid entries.
-const mergeRecipes = (existingRecipes, newRecipes) => {
-  const recipeMap = new Map();
-  (existingRecipes || []).filter(r => r && typeof r === 'object' && r.id).forEach(recipe => recipeMap.set(recipe.id, recipe));
-  (newRecipes || []).filter(r => r && typeof r === 'object' && r.id).forEach(recipe => recipeMap.set(recipe.id, recipe));
-  return Array.from(recipeMap.values());
-};
+const mergeOrderedList = (serverList, clientList) => {
+    const safeClientList = (clientList || []).filter(i => i && typeof i === 'object' && i.id);
+    const safeServerList = (serverList || []).filter(i => i && typeof i === 'object' && i.id);
 
-// HARDENED: Merge grocery items properly, filtering out invalid entries.
-const mergeGroceryList = (existingItems, newItems) => {
-  const itemMap = new Map();
-  (existingItems || []).filter(i => i && typeof i === 'object' && i.id).forEach(item => itemMap.set(item.id, item));
-  (newItems || []).filter(i => i && typeof i === 'object' && i.id).forEach(item => itemMap.set(item.id, item));
-  return Array.from(itemMap.values());
+    // 1. Create a map of the most up-to-date version of every single item.
+    const allItemsMap = new Map();
+    [...safeServerList, ...safeClientList].forEach(item => {
+        const existing = allItemsMap.get(item.id);
+        if (!existing) {
+            allItemsMap.set(item.id, item);
+        } else {
+            const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+            const newTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+            if (newTime >= existingTime) {
+                 if (item.instructions && !item.imageBase64 && existing.imageBase64) {
+                    allItemsMap.set(item.id, { ...item, imageBase64: existing.imageBase64 });
+                } else {
+                    allItemsMap.set(item.id, item);
+                }
+            }
+        }
+    });
+
+    // 2. Determine which list's order is authoritative using a median timestamp score.
+    // This correctly prioritizes a full list reorder (many identical recent timestamps)
+    // over a single new item addition.
+    const getListRecencyScore = (list) => {
+        if (!list || list.length === 0) return 0;
+        const timestamps = list.map(i => i.updatedAt ? new Date(i.updatedAt).getTime() : 0);
+        const sortedTimestamps = timestamps.sort((a, b) => b - a);
+        const medianIndex = Math.floor(sortedTimestamps.length / 2);
+        return sortedTimestamps[medianIndex] || 0;
+    };
+
+    const clientScore = getListRecencyScore(safeClientList);
+    const serverScore = getListRecencyScore(safeServerList);
+
+    const authoritativeList = clientScore >= serverScore ? safeClientList : safeServerList;
+    const otherList = clientScore >= serverScore ? safeServerList : safeClientList;
+    
+    const authoritativeIds = new Set(authoritativeList.map(i => i.id));
+    
+    // 3. Build the final list. Start with the authoritative order.
+    let mergedList = authoritativeList.map(item => allItemsMap.get(item.id));
+
+    // 4. Add any items from the other list that weren't in the authoritative one.
+    otherList.forEach(item => {
+        if (!authoritativeIds.has(item.id)) {
+            mergedList.push(allItemsMap.get(item.id));
+        }
+    });
+    
+    return mergedList.filter(Boolean);
 };
 
 const mergeDeletedIds = (existingIds, newIds) => {
@@ -111,23 +160,49 @@ app.post('/data', async (req, res) => {
     const allDeletedGroceryIds = mergeDeletedIds(serverData.deletedGroceryIds, clientData.deletedGroceryIds);
 
     // 2. Merge the main data lists from server and client.
-    const mergedRecipes = mergeRecipes(serverData.recipes, clientData.recipes);
-    const mergedGrocery = mergeGroceryList(serverData.groceryList, clientData.groceryList);
+    const mergedRecipes = mergeOrderedList(serverData.recipes, clientData.recipes);
+    const mergedGrocery = mergeOrderedList(serverData.groceryList, clientData.groceryList);
 
     // 3. Filter the merged lists using the complete set of deleted IDs.
-    const finalRecipes = mergedRecipes.filter(r => !allDeletedRecipeIds.includes(r.id));
+    const finalRecipesRaw = mergedRecipes.filter(r => !allDeletedRecipeIds.includes(r.id));
     const finalGrocery = mergedGrocery.filter(i => !allDeletedGroceryIds.includes(i.id));
 
-    const finalData = {
+    // 4. Process images: save base64 data to files and strip it from the recipe objects
+    const finalRecipes = await Promise.all(finalRecipesRaw.map(async (recipe) => {
+        if (recipe.imageBase64) {
+            try {
+                const imagePath = path.join(UPLOADS_DIR, `${recipe.imageUrl}.jpg`);
+                // Use a temporary file and rename to avoid partial writes during sync
+                const tempPath = imagePath + '.tmp';
+                await fs.writeFile(tempPath, recipe.imageBase64, { encoding: 'base64' });
+                await fs.rename(tempPath, imagePath);
+                
+                const { imageBase64, ...recipeForStorage } = recipe;
+                return recipeForStorage;
+            } catch (e) {
+                console.error(`Failed to save image for recipe ${recipe.id}:`, e);
+                // If saving fails, still return the recipe without base64 to prevent memory issues
+                const { imageBase64, ...recipeForStorage } = recipe;
+                return recipeForStorage;
+            }
+        }
+        return recipe;
+    }));
+
+    const DELETED_ID_HISTORY_LIMIT = 1000;
+
+    const finalDataToSave = {
       recipes: finalRecipes,
       groceryList: finalGrocery,
       lastUpdated: new Date().toISOString(),
-      deletedRecipeIds: allDeletedRecipeIds,
-      deletedGroceryIds: allDeletedGroceryIds,
+      deletedRecipeIds: allDeletedRecipeIds.slice(-DELETED_ID_HISTORY_LIMIT),
+      deletedGroceryIds: allDeletedGroceryIds.slice(-DELETED_ID_HISTORY_LIMIT),
     };
     
-    if (await writeData(finalData)) {
-      res.status(200).json(finalData);
+    if (await writeData(finalDataToSave)) {
+      // The response now includes the authoritative list of deleted IDs,
+      // curing the "sync amnesia" bug.
+      res.status(200).json(finalDataToSave);
     } else {
       res.status(500).json({ error: 'Failed to save data' });
     }
