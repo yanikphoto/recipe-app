@@ -1,3 +1,9 @@
+/**
+ * @file This file is the main backend server for the recipe application.
+ * It uses Express.js to provide API endpoints for data synchronization (`/data`),
+ * health checks (`/health`), and serving recipe images (`/uploads`).
+ * It reads from and writes to a local `data.json` file for persistence.
+ */
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs').promises; // Use the promises version of fs for async operations
@@ -155,17 +161,20 @@ app.post('/data', async (req, res) => {
     
     const serverData = await readData();
     
-    // 1. Merge the lists of deleted IDs first to get a complete set of all deletions.
+    // 1. Get the definitive list of all deleted IDs from both sources.
     const allDeletedRecipeIds = mergeDeletedIds(serverData.deletedRecipeIds, clientData.deletedRecipeIds);
     const allDeletedGroceryIds = mergeDeletedIds(serverData.deletedGroceryIds, clientData.deletedGroceryIds);
 
-    // 2. Merge the main data lists from server and client.
-    const mergedRecipes = mergeOrderedList(serverData.recipes, clientData.recipes);
-    const mergedGrocery = mergeOrderedList(serverData.groceryList, clientData.groceryList);
+    // 2. Create "active" lists by filtering out deleted items *before* merging.
+    const activeServerRecipes = (serverData.recipes || []).filter(r => r && r.id && !allDeletedRecipeIds.includes(r.id));
+    const activeClientRecipes = (clientData.recipes || []).filter(r => r && r.id && !allDeletedRecipeIds.includes(r.id));
+    
+    const activeServerGrocery = (serverData.groceryList || []).filter(i => i && i.id && !allDeletedGroceryIds.includes(i.id));
+    const activeClientGrocery = (clientData.groceryList || []).filter(i => i && i.id && !allDeletedGroceryIds.includes(i.id));
 
-    // 3. Filter the merged lists using the complete set of deleted IDs.
-    const finalRecipesRaw = mergedRecipes.filter(r => !allDeletedRecipeIds.includes(r.id));
-    const finalGrocery = mergedGrocery.filter(i => !allDeletedGroceryIds.includes(i.id));
+    // 3. Merge only the active items. The merge function now only has to worry about content and order, not deletions.
+    const finalRecipesRaw = mergeOrderedList(activeServerRecipes, activeClientRecipes);
+    const finalGrocery = mergeOrderedList(activeServerGrocery, activeClientGrocery);
 
     // 4. Process images: save base64 data to files and strip it from the recipe objects
     const finalRecipes = await Promise.all(finalRecipesRaw.map(async (recipe) => {
