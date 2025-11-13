@@ -138,8 +138,26 @@ export default async function handler(req: any, res: any) {
                 return res.status(400).json({ error: 'Invalid action' });
         }
     } catch (error: any) {
-        console.error(`Error in action '${action}':`, error);
-        const errorMessage = error.message || 'Une erreur inattendue est survenue.';
-        return res.status(500).json({ error: `Erreur interne du serveur : ${errorMessage}` });
+        console.error(`[API Action: ${action}] Full Error:`, error);
+        
+        // Default message in case we can't identify the error
+        let userMessage = "Une erreur est survenue lors du traitement de votre demande.";
+        
+        // The error from the SDK might be an object, let's stringify it for a reliable text search.
+        const errorString = JSON.stringify(error);
+
+        // Keywords indicating the Gemini model is temporarily unavailable.
+        const isOverloaded = errorString.includes('503') || 
+                             errorString.toLowerCase().includes('overloaded') || 
+                             errorString.includes('UNAVAILABLE');
+
+        if (isOverloaded) {
+            userMessage = "Le service est actuellement très demandé. Veuillez réessayer dans quelques instants.";
+        } else {
+            // For developers: log the unexpected error string.
+            console.error(`[API Action: ${action}] Unhandled Error String:`, errorString);
+        }
+    
+        return res.status(500).json({ error: userMessage });
     }
 }
