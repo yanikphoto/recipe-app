@@ -161,7 +161,7 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
                                  </button>
                              </div>
                          </form>
-                         {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
+                         {error && <div className="mt-4 p-3 bg-red-100 text-red-700 border border-red-300 rounded-xl text-center">{error}</div>}
                      </div>
                 ) : (
                     <div className="space-y-4">
@@ -180,7 +180,7 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
                             onClick={() => setUrlInputVisible(true)}
                             icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>}
                         />
-                        {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
+                        {error && <div className="mt-4 p-3 bg-red-100 text-red-700 border border-red-300 rounded-xl text-center">{error}</div>}
                     </div>
                 )}
             </div>
