@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
 import { apiSync } from './services/apiSync';
@@ -465,7 +466,7 @@ const App: React.FC = () => {
     const renderScreen = () => {
         switch (currentScreen) {
             case 'welcome':
-                return <WelcomeScreen setActiveScreen={setActiveScreen} />;
+                return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
             case 'recipes':
                 return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
             case 'add':
@@ -505,7 +506,7 @@ const App: React.FC = () => {
                     /> 
                     : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
             default:
-                return <WelcomeScreen setActiveScreen={setActiveScreen} />;
+                return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
         }
     };
 
