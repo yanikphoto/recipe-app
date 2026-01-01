@@ -1,3 +1,4 @@
+
 // services/fractionUtils.ts
 
 // --- FRACTION HELPERS ---
@@ -5,11 +6,9 @@
 export const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 
 export const numberToFraction = (value: number | undefined): string => {
-    if (value === undefined || value === null || value === 0) return '';
+    if (value === undefined || value === null || Math.abs(value) < 0.0001) return '';
     
-    const tolerance = 0.01;
-
-    // Check if it's very close to a whole number.
+    // Very tight check for whole numbers first
     if (Math.abs(value - Math.round(value)) < 0.001) {
         return String(Math.round(value));
     }
@@ -17,50 +16,59 @@ export const numberToFraction = (value: number | undefined): string => {
     const wholePart = Math.floor(value);
     const fractionalPart = value - wholePart;
 
-    const commonFractions: { [key: string]: number } = {
-        '1/16': 1/16, '1/8': 1/8, '1/5': 1/5, '1/4': 1/4, '1/3': 1/3, '3/8': 3/8, '2/5': 2/5,
-        '1/2': 1/2, '3/5': 3/5, '5/8': 5/8, '2/3': 2/3, '3/4': 3/4, '4/5': 4/5, '7/8': 7/8, '15/16': 15/16
-    };
+    // 1. PRIORITY CHECK: Standard kitchen units.
+    // We check these first to ensure that if a value is EXACTLY (or very close to) 
+    // a standard unit like 9/16, we return that immediately.
+    // This prevents 9/16 (0.5625) from being approximated as 4/7 (0.5714) just because 7 comes before 16.
+    const priorityDenominators = [2, 3, 4, 8, 16, 32, 64];
 
-    let closestFraction = '';
-    let minDiff = 1;
-
-    // Find the closest common fraction within tolerance
-    for (const [fractionStr, decimalVal] of Object.entries(commonFractions)) {
-        const diff = Math.abs(fractionalPart - decimalVal);
-        if (diff < minDiff && diff < tolerance) {
-            minDiff = diff;
-            closestFraction = fractionStr;
-        }
+    for (const d of priorityDenominators) {
+         const n = Math.round(fractionalPart * d);
+         // Extremely tight tolerance for priority matches to ensure accuracy
+         if (Math.abs(fractionalPart - (n / d)) < 0.0001) {
+             const common = gcd(n, d);
+             // Handle case where rounding bumped it to a whole number (e.g. 15.99/16)
+             if (n === d) return String(wholePart + 1);
+             return (wholePart > 0 ? `${wholePart} ` : '') + `${n/common}/${d/common}`;
+         }
     }
 
-    if (closestFraction) {
-        return (wholePart > 0 ? `${wholePart} ` : '') + closestFraction;
-    }
-    
-    // Fallback: try to generate a simple fraction for common kitchen measurements
-    const maxDenominator = 16;
-    for (let d = 2; d <= maxDenominator; d++) {
+    // 2. GENERAL SEARCH: Find the best fit among all denominators
+    let bestN = 1;
+    let bestD = 1;
+    let minError = 1.0;
+
+    // We scan up to 64 to catch weird conversions if they are the best fit
+    for (let d = 2; d <= 64; d++) {
         const n = Math.round(fractionalPart * d);
-        if (n > 0) {
-            const error = Math.abs(fractionalPart - (n / d));
-            if (error < tolerance) {
-                const commonDivisor = gcd(n, d);
-                const simplifiedN = n / commonDivisor;
-                const simplifiedD = d / commonDivisor;
-                if (simplifiedD > 1) { // Ensure it's a fraction, not a simplified whole number
-                    return (wholePart > 0 ? `${wholePart} ` : '') + `${simplifiedN}/${simplifiedD}`;
-                }
-            }
+        const error = Math.abs(fractionalPart - (n / d));
+
+        if (error < minError) {
+            minError = error;
+            bestN = n;
+            bestD = d;
+            
+            // If exact match found, break early
+            if (error < 0.000001) break;
         }
     }
-    
-    // Final fallback for uncommon fractions to 2 decimal places
-    const fixed = value.toFixed(2);
-    if (fixed.endsWith('.00')) {
-        return String(Math.round(value));
+
+    // Tolerance of 0.005 (0.5%) prevents wild approximations
+    if (minError < 0.005) {
+        const common = gcd(bestN, bestD);
+        const finalN = bestN / common;
+        const finalD = bestD / common;
+        
+        if (finalN === finalD) {
+            return String(wholePart + 1);
+        }
+        
+        return (wholePart > 0 ? `${wholePart} ` : '') + `${finalN}/${finalD}`;
     }
-    return fixed.replace(/\.?0+$/, '');
+    
+    // Fallback: return decimal formatted to remove trailing zeros
+    // e.g. 1.50 -> 1.5, 1.567 -> 1.57
+    return parseFloat(value.toFixed(2)).toString();
 };
 
 
