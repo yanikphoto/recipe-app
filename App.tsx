@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
+import { Recipe, Screen, GroceryListItem, Ingredient, AppData } from './types';
 import { apiSync } from './services/apiSync';
 import { imageStore } from './services/imageStore';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -24,10 +24,10 @@ const App: React.FC = () => {
     const [deletedRecipeIds, setDeletedRecipeIds] = useState<string[]>([]);
     const [deletedGroceryIds, setDeletedGroceryIds] = useState<string[]>([]);
 
-    // Sync state
     const [isOnline, setIsOnline] = useState(false);
-    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-    const [syncInProgress, setSyncInProgress] = useState(false);
+    const lastSyncTimeRef = useRef<Date | null>(null);
+    const syncInProgressRef = useRef(false);
+    const [syncInProgressUI, setSyncInProgressUI] = useState(false);
 
     // Timer state
     const [timerEndTime, setTimerEndTime] = useState<number | null>(null);
@@ -56,145 +56,122 @@ const App: React.FC = () => {
 
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
-    const getFullLocalData = () => {
+    const getFullLocalData = (): AppData => {
         const safeJsonParse = (key: string, defaultValue: any[] = []) => {
             try {
                 const item = localStorage.getItem(key);
                 const parsed = item ? JSON.parse(item) : defaultValue;
                 return Array.isArray(parsed) ? parsed : defaultValue;
-            } catch (e) {
-                console.error(`Error parsing JSON from localStorage key "${key}", clearing item:`, e);
-                localStorage.removeItem(key);
-                return defaultValue;
-            }
+            } catch (e) { return defaultValue; }
         };
 
-        const localRecipes = safeJsonParse('family_recipes');
-        const localGrocery = safeJsonParse('family_grocery');
-        const localDeletedRecipes = safeJsonParse('family_deleted_recipes');
-        const localDeletedGrocery = safeJsonParse('family_deleted_grocery');
-        
         return {
-            recipes: localRecipes.filter((r: Recipe) => r && r.id),
-            groceryList: localGrocery.filter((i: GroceryListItem) => i && i.id),
-            deletedRecipeIds: localDeletedRecipes,
-            deletedGroceryIds: localDeletedGrocery
+            recipes: safeJsonParse('family_recipes').filter((r: Recipe) => r && r.id),
+            groceryList: safeJsonParse('family_grocery').filter((i: GroceryListItem) => i && i.id),
+            deletedRecipeIds: safeJsonParse('family_deleted_recipes'),
+            deletedGroceryIds: safeJsonParse('family_deleted_grocery')
         };
     };
     
-    const setFullLocalData = (data: { recipes: Recipe[], groceryList: GroceryListItem[], deletedRecipeIds: string[], deletedGroceryIds: string[] }) => {
+    const setFullLocalData = (data: AppData) => {
         setRecipes(data.recipes);
         setGroceryList(data.groceryList);
-        setDeletedRecipeIds(data.deletedRecipeIds);
-        setDeletedGroceryIds(data.deletedGroceryIds);
+        setDeletedRecipeIds(data.deletedRecipeIds || []);
+        setDeletedGroceryIds(data.deletedGroceryIds || []);
 
-        try {
-            localStorage.setItem('family_recipes', JSON.stringify(data.recipes));
-            localStorage.setItem('family_grocery', JSON.stringify(data.groceryList));
-            localStorage.setItem('family_deleted_recipes', JSON.stringify(data.deletedRecipeIds));
-            localStorage.setItem('family_deleted_grocery', JSON.stringify(data.deletedGroceryIds));
-        } catch (error) {
-            console.error("Could not write to localStorage:", error);
-            // Optionally, inform the user that their data might not be saved.
-        }
+        localStorage.setItem('family_recipes', JSON.stringify(data.recipes));
+        localStorage.setItem('family_grocery', JSON.stringify(data.groceryList));
+        localStorage.setItem('family_deleted_recipes', JSON.stringify(data.deletedRecipeIds || []));
+        localStorage.setItem('family_deleted_grocery', JSON.stringify(data.deletedGroceryIds || []));
     };
 
+    const mergeData = (local: AppData, server: AppData): AppData => {
+        const combinedDeletedRecipes = new Set([...(local.deletedRecipeIds || []), ...(server.deletedRecipeIds || [])]);
+        const combinedDeletedGrocery = new Set([...(local.deletedGroceryIds || []), ...(server.deletedGroceryIds || [])]);
+
+        // Merge Recipes
+        const recipesMap = new Map<string, Recipe>();
+        [...local.recipes, ...server.recipes].forEach(r => {
+            if (combinedDeletedRecipes.has(r.id)) return;
+            const existing = recipesMap.get(r.id);
+            if (!existing || (r.updatedAt && (!existing.updatedAt || new Date(r.updatedAt) > new Date(existing.updatedAt)))) {
+                recipesMap.set(r.id, r);
+            }
+        });
+
+        // Merge Grocery List (preserving order of the freshest update)
+        const getLatest = (list: GroceryListItem[]) => Math.max(0, ...list.map(i => i.updatedAt ? new Date(i.updatedAt).getTime() : 0));
+        const localFreshest = getLatest(local.groceryList);
+        const serverFreshest = getLatest(server.groceryList);
+
+        const allItemsMap = new Map<string, GroceryListItem>();
+        [...local.groceryList, ...server.groceryList].forEach(item => {
+            if (combinedDeletedGrocery.has(item.id)) return;
+            const existing = allItemsMap.get(item.id);
+            if (!existing || (item.updatedAt && (!existing.updatedAt || new Date(item.updatedAt) > new Date(existing.updatedAt)))) {
+                allItemsMap.set(item.id, item);
+            }
+        });
+
+        // Use the order of the freshest list, then append any remaining unique items
+        const baseOrder = serverFreshest > localFreshest ? server.groceryList : local.groceryList;
+        const mergedOrder: GroceryListItem[] = [];
+        const seen = new Set<string>();
+
+        baseOrder.forEach(item => {
+            const merged = allItemsMap.get(item.id);
+            if (merged && !seen.has(item.id)) {
+                mergedOrder.push(merged);
+                seen.add(item.id);
+            }
+        });
+
+        allItemsMap.forEach((item, id) => {
+            if (!seen.has(id)) mergedOrder.push(item);
+        });
+
+        return {
+            recipes: Array.from(recipesMap.values()),
+            groceryList: mergedOrder,
+            deletedRecipeIds: Array.from(combinedDeletedRecipes),
+            deletedGroceryIds: Array.from(combinedDeletedGrocery)
+        };
+    };
 
     const syncData = async () => {
-        if (syncInProgress) return;
-        setSyncInProgress(true);
-    
+        if (syncInProgressRef.current) return;
+        syncInProgressRef.current = true;
+        setSyncInProgressUI(true);
         try {
             const online = await apiSync.checkHealth();
             setIsOnline(online);
-    
-            const localData = getFullLocalData();
-    
             if (online) {
-                const finalData = await apiSync.saveData(localData, lastSyncTime);
-    
-                if (finalData) {
-                    // Process incoming images
-                    for (const recipe of finalData.recipes) {
-                        if (recipe.imageBase64) {
-                            try {
-                                await imageStore.saveImage(recipe.imageUrl, recipe.imageBase64);
-                            } catch (error) {
-                                console.error(`Failed to save synced image for recipe ${recipe.id}`, error);
-                            }
-                            // Clean up the recipe object before storing it locally to save space
-                            delete recipe.imageBase64;
+                const inFlightLocalData = getFullLocalData();
+                const serverResponse = await apiSync.saveData(inFlightLocalData, lastSyncTimeRef.current);
+                if (serverResponse) {
+                    for (const r of serverResponse.recipes) {
+                        if (r.imageBase64) {
+                            try { await imageStore.saveImage(r.imageUrl, r.imageBase64); } catch (e) {}
+                            delete r.imageBase64;
                         }
                     }
-
-                    setFullLocalData({
-                        ...finalData,
-                        deletedRecipeIds: finalData.deletedRecipeIds || [],
-                        deletedGroceryIds: finalData.deletedGroceryIds || [],
-                    });
-                    setLastSyncTime(new Date());
-                } else {
-                    setIsOnline(false);
-                    setFullLocalData(localData); // Fallback to local
-                    console.warn("Sync POST failed, falling back to local data.");
+                    const mergedData = mergeData(getFullLocalData(), serverResponse);
+                    setFullLocalData(mergedData);
+                    lastSyncTimeRef.current = new Date();
                 }
-            } else {
-                setFullLocalData(localData); // We are offline, use local data
-            }
-        } catch (error) {
-            console.error("Error during sync:", error);
-            setIsOnline(false);
-            const localData = getFullLocalData();
-            setFullLocalData(localData); // On any error, ensure app is usable with local data
-        } finally {
-            setSyncInProgress(false);
+            } else { setFullLocalData(getFullLocalData()); }
+        } catch (e) { setIsOnline(false); } finally {
+            syncInProgressRef.current = false;
+            setSyncInProgressUI(false);
         }
     };
 
-    // Load data on initial mount & handle auto-sync.
     useEffect(() => {
-        let intervalId: number;
-        const onlineHandler = () => syncData();
-
-        const initApp = async () => {
-            // 1. Load local data
-            const localData = getFullLocalData();
-
-            // 2. Perform one-time migration for existing base64 images
-            const migratedRecipes = await Promise.all(
-                localData.recipes.map(async (recipe) => {
-                    if (recipe.imageUrl && recipe.imageUrl.startsWith('data:image')) {
-                        try {
-                            const newImageId = crypto.randomUUID();
-                            const base64Data = recipe.imageUrl.split(',')[1];
-                            if (base64Data) {
-                                await imageStore.saveImage(newImageId, base64Data);
-                                return { ...recipe, imageUrl: newImageId };
-                            }
-                        } catch (error) {
-                            console.error(`Failed to migrate image for recipe: ${recipe.title}`, error);
-                        }
-                    }
-                    return recipe;
-                })
-            );
-
-            // 3. Update local storage and state
-            const currentData = { ...localData, recipes: migratedRecipes };
-            setFullLocalData(currentData);
-            
-            // 4. Start sync process
-            await syncData(); // Initial sync
-            intervalId = window.setInterval(syncData, 15000);
-            window.addEventListener('online', onlineHandler);
-        };
-
-        initApp();
-
-        return () => {
-            if (intervalId) clearInterval(intervalId);
-            window.removeEventListener('online', onlineHandler);
-        };
+        const init = async () => { setFullLocalData(getFullLocalData()); await syncData(); };
+        init();
+        const intervalId = window.setInterval(syncData, 15000);
+        window.addEventListener('online', syncData);
+        return () => { clearInterval(intervalId); window.removeEventListener('online', syncData); };
     }, []);
 
     const playAlarm = () => {
@@ -206,379 +183,188 @@ const App: React.FC = () => {
         const audioContext = audioContextRef.current;
         const alarmGainNode = alarmGainNodeRef.current;
         if (!audioContext || !alarmGainNode) return;
-
         alarmGainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
-
         const sequence = () => {
-            if (audioContext.state === 'suspended') {
-                audioContext.resume();
-            }
+            if (audioContext.state === 'suspended') audioContext.resume();
             const now = audioContext.currentTime;
-
             const playNote = (freq: number, start: number, duration: number) => {
                 const osc = audioContext.createOscillator();
                 const gain = audioContext.createGain();
-                osc.connect(gain);
-                gain.connect(alarmGainNode);
-                osc.type = 'sine';
-                osc.frequency.value = freq;
+                osc.connect(gain); gain.connect(alarmGainNode);
+                osc.type = 'sine'; osc.frequency.value = freq;
                 gain.gain.setValueAtTime(0, start);
                 gain.gain.linearRampToValueAtTime(1, start + 0.01);
                 gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-                osc.start(start);
-                osc.stop(start + duration);
+                osc.start(start); osc.stop(start + duration);
             };
-            
-            playNote(523.25, now, 0.15); // C5
-            playNote(783.99, now + 0.2, 0.3); // G5
+            playNote(523.25, now, 0.15); playNote(783.99, now + 0.2, 0.3);
         };
-
         sequence();
         alarmIntervalRef.current = window.setInterval(sequence, 1500);
     };
 
     const resetTimer = () => {
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        if (alarmIntervalRef.current) {
-            clearInterval(alarmIntervalRef.current);
-            alarmIntervalRef.current = null;
-        }
-
+        if (alarmIntervalRef.current) { clearInterval(alarmIntervalRef.current); alarmIntervalRef.current = null; }
         if (audioContextRef.current && alarmGainNodeRef.current) {
             const now = audioContextRef.current.currentTime;
             alarmGainNodeRef.current.gain.cancelScheduledValues(now);
             alarmGainNodeRef.current.gain.linearRampToValueAtTime(0, now + 0.1);
         }
-    
-        setTimerEndTime(null);
-        setTimerIsPaused(false);
-        setRemainingOnPause(null);
-        setTimeLeft(0);
+        setTimerEndTime(null); setTimerIsPaused(false); setRemainingOnPause(null); setTimeLeft(0);
     };
 
-    const stopAlarm = () => {
-        setIsAlarmModalOpen(false);
-        resetTimer();
-    };
+    const stopAlarm = () => { setIsAlarmModalOpen(false); resetTimer(); };
     
     useEffect(() => {
         const updateTimer = () => {
             if (timerEndTime && !timerIsPaused) {
                 const remaining = Math.round((timerEndTime - Date.now()) / 1000);
-                if (remaining > 0) {
-                    setTimeLeft(remaining);
-                } else {
-                    setTimeLeft(0);
-                    if (timerIntervalRef.current) {
-                        clearInterval(timerIntervalRef.current);
-                        timerIntervalRef.current = null;
-                    }
-                    playAlarm();
-                    setIsAlarmModalOpen(true);
-                }
+                if (remaining > 0) { setTimeLeft(remaining); } 
+                else { setTimeLeft(0); if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); playAlarm(); setIsAlarmModalOpen(true); }
             }
         };
-
-        if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current);
-        }
-
-        if (timerEndTime && !timerIsPaused) {
-            updateTimer(); 
-            timerIntervalRef.current = window.setInterval(updateTimer, 1000);
-        }
-        
-        return () => {
-            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        };
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        if (timerEndTime && !timerIsPaused) { updateTimer(); timerIntervalRef.current = window.setInterval(updateTimer, 1000); }
+        return () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); };
     }, [timerEndTime, timerIsPaused]);
 
-    const startTimer = (durationInSeconds: number) => {
-        if (durationInSeconds <= 0) return;
-        resetTimer();
-        setTimerEndTime(Date.now() + durationInSeconds * 1000);
-        setTimerIsPaused(false);
-        setRemainingOnPause(null);
-        setTimeLeft(durationInSeconds);
-    };
-
+    const startTimer = (duration: number) => { if (duration <= 0) return; resetTimer(); setTimerEndTime(Date.now() + duration * 1000); setTimeLeft(duration); };
     const pauseResumeTimer = () => {
-        if (timerIsPaused) { 
-            if (remainingOnPause) {
-                setTimerEndTime(Date.now() + remainingOnPause);
-            }
-            setTimerIsPaused(false);
-            setRemainingOnPause(null);
-        } else {
-            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            if (timerEndTime) {
-                setRemainingOnPause(timerEndTime - Date.now());
-            }
-            setTimerIsPaused(true);
-        }
+        if (timerIsPaused) { if (remainingOnPause) setTimerEndTime(Date.now() + remainingOnPause); setTimerIsPaused(false); setRemainingOnPause(null); } 
+        else { if (timerEndTime) setRemainingOnPause(timerEndTime - Date.now()); setTimerIsPaused(true); }
     };
 
-    const setActiveScreen = (screen: Screen) => {
-        if (screen === 'search') {
-            setIsSearchOpen(true);
-        } else {
-            setIsSearchOpen(false);
-            setCurrentScreen(screen);
-        }
-    };
-
-    const closeSearchModal = () => {
-        setIsSearchOpen(false);
-    };
-
-    const viewRecipe = (recipe: Recipe) => {
-        setSelectedRecipe(recipe);
-        setCurrentScreen('recipe-detail');
-        setIsSearchOpen(false);
-    };
+    const setActiveScreen = (screen: Screen) => { if (screen === 'search') setIsSearchOpen(true); else { setIsSearchOpen(false); setCurrentScreen(screen); } };
+    const viewRecipe = (recipe: Recipe) => { setSelectedRecipe(recipe); setCurrentScreen('recipe-detail'); setIsSearchOpen(false); };
     
     const addRecipe = (recipe: Recipe) => {
-        setRecipes(prevRecipes => {
-            const updatedRecipes = [recipe, ...prevRecipes.filter(r => r.id !== recipe.id)];
-            localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-            return updatedRecipes;
+        setRecipes(prev => {
+            const updated = [recipe, ...prev.filter(r => r.id !== recipe.id)];
+            localStorage.setItem('family_recipes', JSON.stringify(updated));
+            return updated;
         });
         setCurrentScreen('recipes');
-        setIsSearchOpen(false);
     };
 
     const updateRecipe = async (updatedRecipe: Recipe) => {
         let finalRecipe = { ...updatedRecipe, updatedAt: new Date().toISOString() };
-        
-        // This find is safe because it runs before the state update is queued.
-        const originalRecipe = recipes.find(r => r.id === updatedRecipe.id);
-        
-        if (originalRecipe && updatedRecipe.imageUrl !== originalRecipe.imageUrl && updatedRecipe.imageUrl.startsWith('data:image')) {
-            try {
-                const newImageId = crypto.randomUUID();
-                const base64Data = updatedRecipe.imageUrl.split(',')[1];
-                if (!base64Data) throw new Error("Invalid base64 string");
-
-                await imageStore.saveImage(newImageId, base64Data);
-
-                if (originalRecipe.imageUrl && !originalRecipe.imageUrl.startsWith('data:') && !originalRecipe.imageUrl.startsWith('http')) {
-                    await imageStore.deleteImage(originalRecipe.imageUrl);
-                }
-                
-                finalRecipe.imageUrl = newImageId;
-            } catch (error) {
-                console.error("Failed to update image in IndexedDB", error);
-                finalRecipe.imageUrl = originalRecipe.imageUrl;
-            }
-        }
-    
-        setRecipes(prevRecipes => {
-            const newRecipes = prevRecipes.map(r => (r.id === finalRecipe.id ? finalRecipe : r));
-            localStorage.setItem('family_recipes', JSON.stringify(newRecipes));
-            return newRecipes;
+        setRecipes(prev => {
+            const updated = prev.map(r => r.id === finalRecipe.id ? finalRecipe : r);
+            localStorage.setItem('family_recipes', JSON.stringify(updated));
+            return updated;
         });
-
-        setSelectedRecipe(prevSelected => 
-            (prevSelected && prevSelected.id === finalRecipe.id) ? finalRecipe : prevSelected
-        );
+        setSelectedRecipe(prev => prev?.id === finalRecipe.id ? finalRecipe : prev);
     };
 
     const deleteRecipe = (id: string) => {
-        const recipeToDelete = recipes.find(r => r.id === id);
-        if (recipeToDelete && recipeToDelete.imageUrl && !recipeToDelete.imageUrl.startsWith('http') && !recipeToDelete.imageUrl.startsWith('data:')) {
-            imageStore.deleteImage(recipeToDelete.imageUrl).catch(err => console.error("Failed to delete image from DB:", err));
-        }
-
-        setRecipes(prevRecipes => {
-            const updatedRecipes = prevRecipes.filter(r => r.id !== id);
-            localStorage.setItem('family_recipes', JSON.stringify(updatedRecipes));
-            return updatedRecipes;
+        setRecipes(prev => {
+            const updated = prev.filter(r => r.id !== id);
+            localStorage.setItem('family_recipes', JSON.stringify(updated));
+            return updated;
         });
-
-        setDeletedRecipeIds(prevDeleted => {
-            const updatedDeletedIds = [...new Set([...prevDeleted, id])];
-            localStorage.setItem('family_deleted_recipes', JSON.stringify(updatedDeletedIds));
-            return updatedDeletedIds;
+        setDeletedRecipeIds(prev => {
+            const updated = [...new Set([...prev, id])];
+            localStorage.setItem('family_deleted_recipes', JSON.stringify(updated));
+            return updated;
         });
-        
-        if (selectedRecipe?.id === id) {
-            setCurrentScreen('recipes');
-            setSelectedRecipe(null);
-        }
+        if (selectedRecipe?.id === id) { setCurrentScreen('recipes'); setSelectedRecipe(null); }
         setRecipeToDelete(null);
     };
     
     const toggleGroceryItemFromIngredient = (ingredient: Ingredient) => {
-        const ingredientString = `${ingredient.quantity ? `${numberToFraction(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
-        const existingItem = groceryList.find(item => item.name.toLowerCase() === ingredientString.toLowerCase());
-
-        if (existingItem) {
-            deleteGroceryItem(existingItem.id);
-        } else {
-            addCustomGroceryItem(ingredientString);
-        }
+        const str = `${ingredient.quantity ? `${numberToFraction(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
+        const existing = groceryList.find(item => item.name.toLowerCase() === str.toLowerCase());
+        if (existing) deleteGroceryItem(existing.id); else addCustomGroceryItem(str);
     };
         
     const addCustomGroceryItem = (name: string) => {
-        const newItem: GroceryListItem = { 
-            id: crypto.randomUUID(), 
-            name, 
-            completed: false, 
-            updatedAt: new Date().toISOString() 
-        };
-        setGroceryList(prevItems => {
-            const updatedItems = [newItem, ...prevItems];
-            localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-            return updatedItems;
+        const newItem = { id: crypto.randomUUID(), name, completed: false, updatedAt: new Date().toISOString() };
+        setGroceryList(prev => {
+            const updated = [newItem, ...prev];
+            localStorage.setItem('family_grocery', JSON.stringify(updated));
+            return updated;
         });
     };
 
-    const updateGroceryItem = (id: string, newName: string) => {
-        setGroceryList(prevItems => {
-            const updatedItems = prevItems.map(item =>
-                item.id === id ? { ...item, name: newName, updatedAt: new Date().toISOString() } : item
-            );
-            localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-            return updatedItems;
+    const toggleGroceryItem = (id: string) => {
+        setGroceryList(prev => {
+            const updated = prev.map(i => i.id === id ? { ...i, completed: !i.completed, updatedAt: new Date().toISOString() } : i);
+            localStorage.setItem('family_grocery', JSON.stringify(updated));
+            return updated;
+        });
+    };
+
+    const updateGroceryItem = (id: string, name: string) => {
+        setGroceryList(prev => {
+            const updated = prev.map(i => i.id === id ? { ...i, name, updatedAt: new Date().toISOString() } : i);
+            localStorage.setItem('family_grocery', JSON.stringify(updated));
+            return updated;
         });
     };
 
     const deleteGroceryItem = (id: string) => {
-        setGroceryList(prevItems => {
-            const updatedItems = prevItems.filter(item => item.id !== id);
-            localStorage.setItem('family_grocery', JSON.stringify(updatedItems));
-            return updatedItems;
+        setGroceryList(prev => {
+            const updated = prev.filter(i => i.id !== id);
+            localStorage.setItem('family_grocery', JSON.stringify(updated));
+            return updated;
         });
-        setDeletedGroceryIds(prevDeleted => {
-            const updatedDeletedIds = [...new Set([...prevDeleted, id])];
-            localStorage.setItem('family_deleted_grocery', JSON.stringify(updatedDeletedIds));
-            return updatedDeletedIds;
+        setDeletedGroceryIds(prev => {
+            const updated = [...new Set([...prev, id])];
+            localStorage.setItem('family_deleted_grocery', JSON.stringify(updated));
+            return updated;
         });
     };
 
-    const reorderGroceryItems = (reorderedList: GroceryListItem[]) => {
+    const reorderGroceryItems = (list: GroceryListItem[]) => {
         const now = new Date().toISOString();
-        const updatedList = reorderedList.map(item => ({ ...item, updatedAt: now }));
-        setGroceryList(updatedList);
-        localStorage.setItem('family_grocery', JSON.stringify(updatedList));
+        const updated = list.map(i => ({ ...i, updatedAt: now }));
+        setGroceryList(updated);
+        localStorage.setItem('family_grocery', JSON.stringify(updated));
     };
 
     const renderScreen = () => {
         switch (currentScreen) {
-            case 'welcome':
-                return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
-            case 'recipes':
-                return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
-            case 'add':
-                return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} allCategories={allCategories} />;
-            case 'list':
-                return <GroceryListScreen 
-                    items={groceryList} 
-                    onAddItem={addCustomGroceryItem}
-                    onDeleteItem={deleteGroceryItem}
-                    onUpdateItem={updateGroceryItem}
-                    onReorderItems={reorderGroceryItems}
-                    onBack={() => setActiveScreen('recipes')}
-                />;
-            case 'timer':
-                return <TimerScreen
-                    onBack={() => setActiveScreen('recipes')}
-                    timeLeft={timeLeft}
-                    isPaused={timerIsPaused}
-                    isActive={timerEndTime !== null}
-                    onStart={startTimer}
-                    onPauseResume={pauseResumeTimer}
-                    onReset={() => {
-                        setIsAlarmModalOpen(false);
-                        resetTimer();
-                    }}
-                />;
-            case 'recipe-detail':
-                return selectedRecipe ? 
-                    <RecipeDetailScreen 
-                        recipe={selectedRecipe} 
-                        onBack={() => setActiveScreen('recipes')}
-                        onDeleteRequest={setRecipeToDelete}
-                        onUpdateRecipe={updateRecipe}
-                        groceryList={groceryList}
-                        onToggleGroceryItem={toggleGroceryItemFromIngredient}
-                        recipes={recipes}
-                    /> 
-                    : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
-            default:
-                return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
+            case 'welcome': return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
+            case 'recipes': return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
+            case 'add': return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} allCategories={allCategories} />;
+            case 'list': return <GroceryListScreen items={groceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onReorderItems={reorderGroceryItems} onBack={() => setActiveScreen('recipes')} />;
+            case 'timer': return <TimerScreen onBack={() => setActiveScreen('recipes')} timeLeft={timeLeft} isPaused={timerIsPaused} isActive={timerEndTime !== null} onStart={startTimer} onPauseResume={pauseResumeTimer} onReset={resetTimer} />;
+            case 'recipe-detail': return selectedRecipe ? <RecipeDetailScreen recipe={selectedRecipe} onBack={() => setActiveScreen('recipes')} onDeleteRequest={setRecipeToDelete} onUpdateRecipe={updateRecipe} groceryList={groceryList} onToggleGroceryItem={toggleGroceryItemFromIngredient} recipes={recipes} /> : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
+            default: return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
         }
     };
 
-    const isDetailScreen = currentScreen === 'recipe-detail';
-    const positionClasses = isDetailScreen ? 'top-5 left-16' : 'top-5 right-5';
-
-    const statusIndicator = (
-        <div className={`fixed z-50 ${positionClasses}`}>
-            {syncInProgress ? (
-                <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Synchronisation en cours...">
-                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
-                </div>
-            ) : isOnline ? (
-                <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="En ligne">
-                    <div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div>
-                </div>
-            ) : (
-                <button onClick={syncData} className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Hors ligne. Cliquez pour réessayer.">
-                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
-                </button>
-            )}
-        </div>
-    );
-
     return (
         <div className="max-w-lg mx-auto font-sans bg-[#F9F9F5] min-h-screen">
-            {/* Sync Status Indicator */}
-            {statusIndicator}
-
+            <div className={`fixed z-50 ${currentScreen === 'recipe-detail' ? 'top-5 left-16' : 'top-5 right-5'}`}>
+                {syncInProgressUI ? (
+                    <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md"><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div></div>
+                ) : isOnline ? (
+                    <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md"><div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div></div>
+                ) : (
+                    <button onClick={syncData} className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md"><div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div></button>
+                )}
+            </div>
             <main>{renderScreen()}</main>
             <BottomNav activeScreen={activeScreen} setActiveScreen={setActiveScreen} />
-            
             {isAlarmModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
                     <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full text-center shadow-lg">
                         <h2 className="text-2xl font-bold text-gray-800 mb-6">Temps écoulé !</h2>
-                        <button
-                            onClick={stopAlarm}
-                            className="px-6 py-4 rounded-xl bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors w-full text-lg"
-                        >
-                            ARRÊTER
-                        </button>
+                        <button onClick={stopAlarm} className="px-6 py-4 rounded-xl bg-red-500 text-white font-semibold w-full text-lg">ARRÊTER</button>
                     </div>
                 </div>
             )}
-
-            {isSearchOpen && (
-                <SearchModal 
-                    recipes={sortedRecipes}
-                    onSelectRecipe={viewRecipe}
-                    onClose={closeSearchModal}
-                />
-            )}
-
+            {isSearchOpen && <SearchModal recipes={sortedRecipes} onSelectRecipe={viewRecipe} onClose={() => setIsSearchOpen(false)} />}
             {recipeToDelete && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 transition-opacity duration-300">
-                    <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full text-center shadow-lg transform transition-all duration-300 scale-100">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full text-center shadow-lg">
                         <h2 className="text-xl font-bold text-gray-800 mb-4">Confirmer la suppression</h2>
-                        <p className="text-gray-600 mb-6">Êtes-vous sûr de vouloir supprimer cette recette ? Cette action est irréversible.</p>
+                        <p className="text-gray-600 mb-6">Êtes-vous sûr de vouloir supprimer cette recette ?</p>
                         <div className="flex justify-center gap-4">
-                            <button
-                                onClick={() => setRecipeToDelete(null)}
-                                className="px-6 py-3 rounded-xl bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300 transition-colors w-full"
-                            >
-                                Annuler
-                            </button>
-                            <button
-                                onClick={() => deleteRecipe(recipeToDelete)}
-                                className="px-6 py-3 rounded-xl bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors w-full"
-                            >
-                                Supprimer
-                            </button>
+                            <button onClick={() => setRecipeToDelete(null)} className="px-6 py-3 rounded-xl bg-gray-200 text-gray-800 font-semibold w-full">Annuler</button>
+                            <button onClick={() => deleteRecipe(recipeToDelete)} className="px-6 py-3 rounded-xl bg-red-500 text-white font-semibold w-full">Supprimer</button>
                         </div>
                     </div>
                 </div>
