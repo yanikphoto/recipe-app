@@ -86,53 +86,63 @@ const App: React.FC = () => {
     };
 
     const mergeData = (local: AppData, server: AppData): AppData => {
+        // 1. Merge the set of deleted IDs (union)
         const combinedDeletedRecipes = new Set([...(local.deletedRecipeIds || []), ...(server.deletedRecipeIds || [])]);
         const combinedDeletedGrocery = new Set([...(local.deletedGroceryIds || []), ...(server.deletedGroceryIds || [])]);
 
-        // Merge Recipes
-        const recipesMap = new Map<string, Recipe>();
-        [...local.recipes, ...server.recipes].forEach(r => {
-            if (combinedDeletedRecipes.has(r.id)) return;
-            const existing = recipesMap.get(r.id);
-            if (!existing || (r.updatedAt && (!existing.updatedAt || new Date(r.updatedAt) > new Date(existing.updatedAt)))) {
-                recipesMap.set(r.id, r);
-            }
-        });
+        // 2. Helper to merge items using "Last Write Wins"
+        const mergeItems = <T extends { id: string; updatedAt?: string }>(l: T[], s: T[]): T[] => {
+            const map = new Map<string, T>();
+            [...l, ...s].forEach(item => {
+                const existing = map.get(item.id);
+                if (!existing || (item.updatedAt && (!existing.updatedAt || new Date(item.updatedAt) > new Date(existing.updatedAt)))) {
+                    map.set(item.id, item);
+                }
+            });
+            return Array.from(map.values());
+        };
 
-        // Merge Grocery List (preserving order of the freshest update)
-        const getLatest = (list: GroceryListItem[]) => Math.max(0, ...list.map(i => i.updatedAt ? new Date(i.updatedAt).getTime() : 0));
-        const localFreshest = getLatest(local.groceryList);
-        const serverFreshest = getLatest(server.groceryList);
+        // 3. Merge recipes and prune deleted ones
+        const mergedRecipes = mergeItems(local.recipes, server.recipes)
+            .filter(r => !combinedDeletedRecipes.has(r.id));
 
-        const allItemsMap = new Map<string, GroceryListItem>();
-        [...local.groceryList, ...server.groceryList].forEach(item => {
-            if (combinedDeletedGrocery.has(item.id)) return;
-            const existing = allItemsMap.get(item.id);
-            if (!existing || (item.updatedAt && (!existing.updatedAt || new Date(item.updatedAt) > new Date(existing.updatedAt)))) {
-                allItemsMap.set(item.id, item);
-            }
-        });
+        // 4. Merge grocery list items
+        const mergedGroceryItems = mergeItems(local.groceryList, server.groceryList)
+            .filter(i => !combinedDeletedGrocery.has(i.id));
 
-        // Use the order of the freshest list, then append any remaining unique items
+        // 5. Reorder grocery list based on the fresher device's sequence
+        const getFreshestTimestamp = (list: { updatedAt?: string }[]) => 
+            Math.max(0, ...list.map(i => i.updatedAt ? new Date(i.updatedAt).getTime() : 0));
+        
+        const localFreshest = getFreshestTimestamp(local.groceryList);
+        const serverFreshest = getFreshestTimestamp(server.groceryList);
+
         const baseOrder = serverFreshest > localFreshest ? server.groceryList : local.groceryList;
-        const mergedOrder: GroceryListItem[] = [];
-        const seen = new Set<string>();
+        const groceryMap = new Map(mergedGroceryItems.map(i => [i.id, i]));
+        
+        const finalGrocery: GroceryListItem[] = [];
+        const seenIds = new Set<string>();
 
+        // First add items in the order they appear in the fresher list
         baseOrder.forEach(item => {
-            const merged = allItemsMap.get(item.id);
-            if (merged && !seen.has(item.id)) {
-                mergedOrder.push(merged);
-                seen.add(item.id);
+            const merged = groceryMap.get(item.id);
+            if (merged && !seenIds.has(merged.id)) {
+                finalGrocery.push(merged);
+                seenIds.add(merged.id);
             }
         });
 
-        allItemsMap.forEach((item, id) => {
-            if (!seen.has(id)) mergedOrder.push(item);
+        // Then add any items that weren't in that device's order but exist in merged set
+        groceryMap.forEach(item => {
+            if (!seenIds.has(item.id)) {
+                finalGrocery.push(item);
+                seenIds.add(item.id);
+            }
         });
 
         return {
-            recipes: Array.from(recipesMap.values()),
-            groceryList: mergedOrder,
+            recipes: mergedRecipes,
+            groceryList: finalGrocery,
             deletedRecipeIds: Array.from(combinedDeletedRecipes),
             deletedGroceryIds: Array.from(combinedDeletedGrocery)
         };
