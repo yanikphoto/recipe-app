@@ -25,6 +25,7 @@ export type GroceryListItem = {
     name: string;
     completed: boolean;
     updatedAt?: string;
+    position?: number;
 };
 
 export type Screen = 'welcome' | 'recipes' | 'add' | 'search' | 'list' | 'recipe-detail' | 'timer';

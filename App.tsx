@@ -65,9 +65,22 @@ const App: React.FC = () => {
             } catch (e) { return defaultValue; }
         };
 
+        const recipes = safeJsonParse('family_recipes').filter((r: Recipe) => r && r.id);
+        const groceryList = safeJsonParse('family_grocery').filter((i: GroceryListItem) => i && i.id);
+        
+        // Migration: assign positions to existing grocery items
+        let needsSave = false;
+        groceryList.forEach((item: GroceryListItem, index: number) => {
+            if (item.position === undefined) {
+                item.position = index * 1000;
+                needsSave = true;
+            }
+        });
+        if (needsSave) localStorage.setItem('family_grocery', JSON.stringify(groceryList));
+
         return {
-            recipes: safeJsonParse('family_recipes').filter((r: Recipe) => r && r.id),
-            groceryList: safeJsonParse('family_grocery').filter((i: GroceryListItem) => i && i.id),
+            recipes,
+            groceryList,
             deletedRecipeIds: safeJsonParse('family_deleted_recipes'),
             deletedGroceryIds: safeJsonParse('family_deleted_grocery')
         };
@@ -86,9 +99,11 @@ const App: React.FC = () => {
     };
 
     const mergeData = (local: AppData, server: AppData): AppData => {
-        // 1. Merge the set of deleted IDs (union)
-        const combinedDeletedRecipes = new Set([...(local.deletedRecipeIds || []), ...(server.deletedRecipeIds || [])]);
-        const combinedDeletedGrocery = new Set([...(local.deletedGroceryIds || []), ...(server.deletedGroceryIds || [])]);
+        const MAX_DELETED = 1000;
+        // 1. Merge the set of deleted IDs (union) and cap size. 
+        // Put local last so recent local deletions aren't sliced off if the array is too long.
+        const combinedDeletedRecipes = new Set(Array.from(new Set([...(server.deletedRecipeIds || []), ...(local.deletedRecipeIds || [])])).slice(-MAX_DELETED));
+        const combinedDeletedGrocery = new Set(Array.from(new Set([...(server.deletedGroceryIds || []), ...(local.deletedGroceryIds || [])])).slice(-MAX_DELETED));
 
         // 2. Helper to merge items using "Last Write Wins"
         const mergeItems = <T extends { id: string; updatedAt?: string }>(l: T[], s: T[]): T[] => {
@@ -106,39 +121,12 @@ const App: React.FC = () => {
         const mergedRecipes = mergeItems(local.recipes, server.recipes)
             .filter(r => !combinedDeletedRecipes.has(r.id));
 
-        // 4. Merge grocery list items
+        // 4. Merge grocery list items and prune deleted ones
         const mergedGroceryItems = mergeItems(local.groceryList, server.groceryList)
             .filter(i => !combinedDeletedGrocery.has(i.id));
 
-        // 5. Reorder grocery list based on the fresher device's sequence
-        const getFreshestTimestamp = (list: { updatedAt?: string }[]) => 
-            Math.max(0, ...list.map(i => i.updatedAt ? new Date(i.updatedAt).getTime() : 0));
-        
-        const localFreshest = getFreshestTimestamp(local.groceryList);
-        const serverFreshest = getFreshestTimestamp(server.groceryList);
-
-        const baseOrder = serverFreshest > localFreshest ? server.groceryList : local.groceryList;
-        const groceryMap = new Map(mergedGroceryItems.map(i => [i.id, i]));
-        
-        const finalGrocery: GroceryListItem[] = [];
-        const seenIds = new Set<string>();
-
-        // First add items in the order they appear in the fresher list
-        baseOrder.forEach(item => {
-            const merged = groceryMap.get(item.id);
-            if (merged && !seenIds.has(merged.id)) {
-                finalGrocery.push(merged);
-                seenIds.add(merged.id);
-            }
-        });
-
-        // Then add any items that weren't in that device's order but exist in merged set
-        groceryMap.forEach(item => {
-            if (!seenIds.has(item.id)) {
-                finalGrocery.push(item);
-                seenIds.add(item.id);
-            }
-        });
+        // 5. Sort grocery list by position
+        const finalGrocery = mergedGroceryItems.sort((a, b) => (a.position || 0) - (b.position || 0));
 
         return {
             recipes: mergedRecipes,
@@ -274,7 +262,7 @@ const App: React.FC = () => {
             return updated;
         });
         setDeletedRecipeIds(prev => {
-            const updated = [...new Set([...prev, id])];
+            const updated = [...new Set([...prev, id])].slice(-1000);
             localStorage.setItem('family_deleted_recipes', JSON.stringify(updated));
             return updated;
         });
@@ -289,8 +277,15 @@ const App: React.FC = () => {
     };
         
     const addCustomGroceryItem = (name: string) => {
-        const newItem = { id: crypto.randomUUID(), name, completed: false, updatedAt: new Date().toISOString() };
         setGroceryList(prev => {
+            const minPos = prev.length > 0 ? Math.min(...prev.map(i => i.position || 0)) : 0;
+            const newItem: GroceryListItem = { 
+                id: crypto.randomUUID(), 
+                name, 
+                completed: false, 
+                updatedAt: new Date().toISOString(),
+                position: minPos - 1000 
+            };
             const updated = [newItem, ...prev];
             localStorage.setItem('family_grocery', JSON.stringify(updated));
             return updated;
@@ -320,17 +315,39 @@ const App: React.FC = () => {
             return updated;
         });
         setDeletedGroceryIds(prev => {
-            const updated = [...new Set([...prev, id])];
+            const updated = [...new Set([...prev, id])].slice(-1000);
             localStorage.setItem('family_deleted_grocery', JSON.stringify(updated));
             return updated;
         });
     };
 
-    const reorderGroceryItems = (list: GroceryListItem[]) => {
-        const now = new Date().toISOString();
-        const updated = list.map(i => ({ ...i, updatedAt: now }));
-        setGroceryList(updated);
-        localStorage.setItem('family_grocery', JSON.stringify(updated));
+    const moveGroceryItem = (oldIndex: number, newIndex: number) => {
+        if (oldIndex === newIndex) return;
+        setGroceryList(prev => {
+            const list = [...prev];
+            const item = { ...list[oldIndex] };
+            list.splice(oldIndex, 1);
+            list.splice(newIndex, 0, item);
+
+            const prevItem = list[newIndex - 1];
+            const nextItem = list[newIndex + 1];
+            
+            let newPos = 0;
+            if (prevItem && nextItem) {
+                newPos = ((prevItem.position || 0) + (nextItem.position || 0)) / 2;
+            } else if (prevItem) {
+                newPos = (prevItem.position || 0) + 1000;
+            } else if (nextItem) {
+                newPos = (nextItem.position || 0) - 1000;
+            }
+
+            item.position = newPos;
+            item.updatedAt = new Date().toISOString();
+            list[newIndex] = item;
+
+            localStorage.setItem('family_grocery', JSON.stringify(list));
+            return list;
+        });
     };
 
     const renderScreen = () => {
@@ -338,7 +355,7 @@ const App: React.FC = () => {
             case 'welcome': return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
             case 'recipes': return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
             case 'add': return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} allCategories={allCategories} />;
-            case 'list': return <GroceryListScreen items={groceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onReorderItems={reorderGroceryItems} onBack={() => setActiveScreen('recipes')} />;
+            case 'list': return <GroceryListScreen items={groceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onMoveItem={moveGroceryItem} onBack={() => setActiveScreen('recipes')} />;
             case 'timer': return <TimerScreen onBack={() => setActiveScreen('recipes')} timeLeft={timeLeft} isPaused={timerIsPaused} isActive={timerEndTime !== null} onStart={startTimer} onPauseResume={pauseResumeTimer} onReset={resetTimer} />;
             case 'recipe-detail': return selectedRecipe ? <RecipeDetailScreen recipe={selectedRecipe} onBack={() => setActiveScreen('recipes')} onDeleteRequest={setRecipeToDelete} onUpdateRecipe={updateRecipe} groceryList={groceryList} onToggleGroceryItem={toggleGroceryItemFromIngredient} recipes={recipes} /> : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
             default: return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
