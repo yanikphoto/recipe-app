@@ -8,11 +8,11 @@ type GroceryListScreenProps = {
   onDeleteItem: (id: string) => void;
   onUpdateItem: (id: string, name: string) => void;
   onToggleItem: (id: string) => void;
-  onReorderItems: (items: GroceryListItem[]) => void;
+  onMoveItem: (oldIndex: number, newIndex: number) => void;
   onBack: () => void;
 };
 
-const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onUpdateItem, onToggleItem, onReorderItems, onBack }) => {
+const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem, onDeleteItem, onUpdateItem, onToggleItem, onMoveItem, onBack }) => {
     const [newItem, setNewItem] = useState('');
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
     const [editingItemText, setEditingItemText] = useState('');
@@ -53,10 +53,7 @@ const GroceryListScreen: React.FC<GroceryListScreenProps> = ({ items, onAddItem,
 
     const handleSort = () => {
         if (dragItem.current === null || dragOverIndex === null || dragItem.current === dragOverIndex) return;
-        let _items = [...items];
-        const draggedItemContent = _items.splice(dragItem.current, 1)[0];
-        _items.splice(dragOverIndex, 0, draggedItemContent);
-        onReorderItems(_items);
+        onMoveItem(dragItem.current, dragOverIndex);
     };
 
     const resetDragState = () => {
