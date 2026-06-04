@@ -1,9 +1,7 @@
 import { Recipe } from '../types';
 
-const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
-
 async function apiCall(action: string, payload: any) {
-    const response = await fetch(`${API_BASE_URL}/api/recipe`, {
+    const response = await fetch('/api/recipe', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
