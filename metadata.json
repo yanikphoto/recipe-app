@@ -1,7 +1,10 @@
 {
-  "name": "No Recettes",
-  "description": "A new application ready to be built.",
+  "name": "Nos Recettes",
+  "description": "Une application pour gérer les recettes de famille et les listes d'épicerie.",
   "requestFramePermissions": [
     "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
