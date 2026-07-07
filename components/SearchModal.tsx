@@ -2,6 +2,15 @@ import React, { useState, useMemo } from 'react';
 import { Recipe } from '../types';
 import StoredImage from './StoredImage';
 
+const normalizeString = (str: string): string => {
+    if (!str) return '';
+    return str
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/([a-z])\1+/g, '$1');
+};
+
 type SearchModalProps = {
   recipes: Recipe[];
   onSelectRecipe: (recipe: Recipe) => void;
@@ -18,17 +27,27 @@ const SearchModal: React.FC<SearchModalProps> = ({ recipes, onSelectRecipe, onCl
     }, [recipes]);
 
     const filteredRecipes = useMemo(() => {
+        const searchWords = normalizeString(searchTerm).split(/\s+/).filter(word => word.length > 0);
+
         return recipes.filter(recipe => {
-            const lowerCaseSearchTerm = searchTerm.toLowerCase();
             const matchesCategory = selectedCategory ? recipe.categories.includes(selectedCategory) : true;
             
-            const matchesSearchTerm = searchTerm 
-                ? recipe.title.toLowerCase().includes(lowerCaseSearchTerm) || 
-                  recipe.categories.some(c => c.toLowerCase().includes(lowerCaseSearchTerm)) ||
-                  recipe.ingredients.some(ing => !ing.isSectionHeader && ing.name.toLowerCase().includes(lowerCaseSearchTerm))
-                : true;
+            if (!matchesCategory) return false;
+            if (searchWords.length === 0) return true;
+
+            const searchableParts = [
+                recipe.title || '',
+                ...(recipe.categories || []),
+                ...(recipe.ingredients || [])
+                    .filter(ing => ing && !ing.isSectionHeader && ing.name)
+                    .map(ing => ing.name)
+            ];
             
-            return matchesCategory && matchesSearchTerm;
+            const normalizedSearchableText = searchableParts
+                .map(part => normalizeString(part))
+                .join(' ');
+
+            return searchWords.every(word => normalizedSearchableText.includes(word));
         });
     }, [recipes, searchTerm, selectedCategory]);
 
