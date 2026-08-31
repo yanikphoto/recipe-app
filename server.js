@@ -264,6 +264,25 @@ app.post('/api/recipe', async (req, res) => {
             const result = await generateWithFallback(contents, recipeSchema);
             return res.status(200).json(result);
         } else if (action === 'generateImage') {
+            const geminiImageModels = ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image', 'gemini-2.5-flash-image', 'gemini-3-pro-image'];
+            for (const model of geminiImageModels) {
+                try {
+                    const response = await ai.models.generateContent({
+                        model,
+                        contents: { parts: [{ text: payload.prompt }] },
+                        config: { imageConfig: { aspectRatio: '1:1' } },
+                    });
+                    const parts = response.candidates?.[0]?.content?.parts || [];
+                    for (const part of parts) {
+                        if (part.inlineData?.data) {
+                            return res.status(200).json({ imageBase64: part.inlineData.data });
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`Gemini image model ${model} failed in server.js, trying next:`, err?.message || err);
+                }
+            }
+
             const imageModels = ['imagen-4.0-generate-001', 'imagen-3.0-generate-002'];
             for (const model of imageModels) {
                 try {
