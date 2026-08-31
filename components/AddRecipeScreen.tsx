@@ -5,14 +5,6 @@ import { imageStore } from '../services/imageStore';
 import { processImage, fileToDataUrl } from '../services/imageUtils';
 import Spinner from './Spinner';
 
-const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string; } }> => {
-  const dataUrl = await fileToDataUrl(file);
-  const { base64 } = await processImage(dataUrl);
-  return {
-    inlineData: { data: base64, mimeType: 'image/jpeg' },
-  };
-};
-
 const OptionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void }> = ({ icon, label, onClick }) => (
     <button
         onClick={onClick}
@@ -40,22 +32,17 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
     const cameraInputRef = useRef<HTMLInputElement>(null);
 
     const processAndAddRecipe = async (parsedData: Partial<Recipe> & { imagePrompt: string }) => {
-        if (!parsedData.title || !parsedData.ingredients?.length || !parsedData.instructions?.length) {
+        if (!parsedData.title || !parsedData.ingredients?.length || !parsedData.instructions?.length || !parsedData.imagePrompt) {
             throw new Error("Impossible d'extraire les détails complets de la recette. Veuillez essayer une autre source.");
         }
 
+        setLoadingMessage("Génération de l'image...");
+        const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
+        
         let imageId: string | undefined = undefined;
-        if (parsedData.imagePrompt) {
-            try {
-                setLoadingMessage("Génération de l'image...");
-                const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
-                if (imageBase64) {
-                    imageId = crypto.randomUUID();
-                    await imageStore.saveImage(imageId, imageBase64);
-                }
-            } catch (imgError) {
-                console.warn("L'image n'a pas pu être générée automatiquement:", imgError);
-            }
+        if (imageBase64) {
+            imageId = crypto.randomUUID();
+            await imageStore.saveImage(imageId, imageBase64);
         }
 
         const newRecipe: Recipe = {
@@ -80,7 +67,9 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
             setLoadingMessage('Analyse de la recette...');
             setError('');
             try {
-                const imagePart = await fileToGenerativePart(file);
+                const dataUrl = await fileToDataUrl(file);
+                const { base64 } = await processImage(dataUrl);
+                const imagePart = { inlineData: { data: base64, mimeType: 'image/jpeg' } };
                 const parsedData = await parseRecipeFromImage(imagePart, allCategories);
                 await processAndAddRecipe(parsedData);
             } catch (err: any) {
