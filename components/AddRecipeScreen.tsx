@@ -40,15 +40,23 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
     const cameraInputRef = useRef<HTMLInputElement>(null);
 
     const processAndAddRecipe = async (parsedData: Partial<Recipe> & { imagePrompt: string }) => {
-        if (!parsedData.title || !parsedData.ingredients?.length || !parsedData.instructions?.length || !parsedData.imagePrompt) {
+        if (!parsedData.title || !parsedData.ingredients?.length || !parsedData.instructions?.length) {
             throw new Error("Impossible d'extraire les détails complets de la recette. Veuillez essayer une autre source.");
         }
 
-        setLoadingMessage("Génération de l'image...");
-        const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
-        
-        const imageId = crypto.randomUUID();
-        await imageStore.saveImage(imageId, imageBase64);
+        let imageId: string | undefined = undefined;
+        if (parsedData.imagePrompt) {
+            try {
+                setLoadingMessage("Génération de l'image...");
+                const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
+                if (imageBase64) {
+                    imageId = crypto.randomUUID();
+                    await imageStore.saveImage(imageId, imageBase64);
+                }
+            } catch (imgError) {
+                console.warn("L'image n'a pas pu être générée automatiquement:", imgError);
+            }
+        }
 
         const newRecipe: Recipe = {
             id: crypto.randomUUID(),
