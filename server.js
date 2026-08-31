@@ -1,13 +1,7 @@
-/**
- * @file This file is the main backend server for the recipe application.
- * It uses Express.js to provide API endpoints for data synchronization (`/data`),
- * health checks (`/health`), and serving recipe images (`/uploads`).
- * It reads from and writes to a local `data.json` file for persistence.
- */
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs').promises; // Use the promises version of fs for async operations
-const fsSync = require('fs'); // For one-time sync check on startup
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 
 const app = express();
@@ -22,12 +16,42 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 // Ensure uploads directory exists on startup
 if (!fsSync.existsSync(UPLOADS_DIR)) {
-    fsSync.mkdirSync(UPLOADS_DIR);
+    fsSync.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
 // Serve image files statically
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// Helper to safely load data
+async function loadData() {
+    try {
+        if (!fsSync.existsSync(DATA_FILE)) {
+            const initialData = { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [] };
+            await fs.writeFile(DATA_FILE, JSON.stringify(initialData, null, 2));
+            return initialData;
+        }
+        const content = await fs.readFile(DATA_FILE, 'utf-8');
+        const parsed = JSON.parse(content || '{}');
+        return {
+            recipes: parsed.recipes || [],
+            groceryList: parsed.groceryList || [],
+            deletedRecipeIds: parsed.deletedRecipeIds || [],
+            deletedGroceryIds: parsed.deletedGroceryIds || []
+        };
+    } catch (error) {
+        console.error("Error reading data file:", error);
+        return { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [] };
+    }
+}
+
+// Helper to safely save data
+async function saveData(data) {
+    try {
+        await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+    } catch (error) {
+        console.error("Error writing data file:", error);
+    }
+}
 
 // --- Simple Async Lock to prevent race conditions ---
 let isLocked = false;
@@ -35,7 +59,6 @@ const withLock = async (fn) => {
     while (isLocked) {
         await new Promise(resolve => setTimeout(resolve, 50));
     }
-    
     isLocked = true;
     try {
         return await fn();
@@ -43,185 +66,230 @@ const withLock = async (fn) => {
         isLocked = false;
     }
 };
-// --- End of Lock ---
 
-const readData = () => withLock(async () => {
-    try {
-        if (!fsSync.existsSync(DATA_FILE)) {
-            const initialData = { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [] };
-            await fs.writeFile(DATA_FILE, JSON.stringify(initialData, null, 2));
-            return initialData;
-        }
-        const fileContent = await fs.readFile(DATA_FILE, 'utf8');
-        const data = JSON.parse(fileContent);
-        // Ensure the deleted ID arrays exist for backward compatibility
-        data.deletedRecipeIds = data.deletedRecipeIds || [];
-        data.deletedGroceryIds = data.deletedGroceryIds || [];
-        return data;
-    } catch (error) {
-        console.error('Error reading data file, returning empty state:', error);
-        return { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [] };
-    }
+// --- API Endpoints ---
+
+// Check database connection and health
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', time: new Date().toISOString() });
 });
 
-const writeData = (data) => withLock(async () => {
-    try {
-        await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
-        return true;
-    } catch (error) {
-        console.error('Error writing data:', error);
-        return false;
-    }
+// GET /data - returns the current storage state
+app.get('/data', async (req, res) => {
+    const data = await withLock(async () => {
+        return await loadData();
+    });
+    res.status(200).json(data);
 });
 
-const mergeOrderedList = (serverList, clientList) => {
-    const safeClientList = (clientList || []).filter(i => i && typeof i === 'object' && i.id);
-    const safeServerList = (serverList || []).filter(i => i && typeof i === 'object' && i.id);
-
-    // 1. Create a map of the most up-to-date version of every single item.
-    const allItemsMap = new Map();
-    [...safeServerList, ...safeClientList].forEach(item => {
-        const existing = allItemsMap.get(item.id);
-        if (!existing) {
-            allItemsMap.set(item.id, item);
-        } else {
-            const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-            const newTime = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
-            if (newTime >= existingTime) {
-                 if (item.instructions && !item.imageBase64 && existing.imageBase64) {
-                    allItemsMap.set(item.id, { ...item, imageBase64: existing.imageBase64 });
-                } else {
-                    allItemsMap.set(item.id, item);
+// POST /data - merges and synchronizes full data state
+app.post('/data', async (req, res) => {
+    const clientData = req.body || {};
+    
+    const mergedResult = await withLock(async () => {
+        const storedData = await loadData();
+        
+        // 1. Merge deleted item lists
+        const clientDelRecipes = clientData.deletedRecipeIds || [];
+        const clientDelGrocery = clientData.deletedGroceryIds || [];
+        
+        const mergedDelRecipes = Array.from(new Set([...(storedData.deletedRecipeIds || []), ...clientDelRecipes]));
+        const mergedDelGrocery = Array.from(new Set([...(storedData.deletedGroceryIds || []), ...clientDelGrocery]));
+        
+        // 2. Merge Grocery list
+        const clientGrocery = clientData.groceryList || [];
+        const storedGroceryMap = new Map((storedData.groceryList || []).map(g => [g.id, g]));
+        
+        for (const item of clientGrocery) {
+            if (mergedDelGrocery.includes(item.id)) {
+                storedGroceryMap.delete(item.id);
+                continue;
+            }
+            
+            const existing = storedGroceryMap.get(item.id);
+            if (!existing) {
+                storedGroceryMap.set(item.id, item);
+            } else {
+                const dateExisting = new Date(existing.updatedAt || 0).getTime();
+                const dateItem = new Date(item.updatedAt || 0).getTime();
+                if (dateItem > dateExisting) {
+                    storedGroceryMap.set(item.id, item);
                 }
             }
         }
-    });
-
-    // 2. Determine which list's order is authoritative using a median timestamp score.
-    // This correctly prioritizes a full list reorder (many identical recent timestamps)
-    // over a single new item addition.
-    const getListRecencyScore = (list) => {
-        if (!list || list.length === 0) return 0;
-        const timestamps = list.map(i => i.updatedAt ? new Date(i.updatedAt).getTime() : 0);
-        const sortedTimestamps = timestamps.sort((a, b) => b - a);
-        const medianIndex = Math.floor(sortedTimestamps.length / 2);
-        return sortedTimestamps[medianIndex] || 0;
-    };
-
-    const clientScore = getListRecencyScore(safeClientList);
-    const serverScore = getListRecencyScore(safeServerList);
-
-    const authoritativeList = clientScore >= serverScore ? safeClientList : safeServerList;
-    const otherList = clientScore >= serverScore ? safeServerList : safeClientList;
-    
-    const authoritativeIds = new Set(authoritativeList.map(i => i.id));
-    
-    // 3. Build the final list. Start with the authoritative order.
-    let mergedList = authoritativeList.map(item => allItemsMap.get(item.id));
-
-    // 4. Add any items from the other list that weren't in the authoritative one.
-    otherList.forEach(item => {
-        if (!authoritativeIds.has(item.id)) {
-            mergedList.push(allItemsMap.get(item.id));
-        }
-    });
-    
-    return mergedList.filter(Boolean);
-};
-
-const mergeDeletedIds = (existingIds, newIds) => {
-    const idSet = new Set([...(existingIds || []), ...(newIds || [])]);
-    return Array.from(idSet);
-};
-
-
-// Routes - now all async
-app.get('/', (req, res) => res.json({ message: 'Recipe App API is running!' }));
-app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
-
-app.get('/data', async (req, res) => {
-  try {
-    const data = await readData();
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to read data' });
-  }
-});
-
-app.post('/data', async (req, res) => {
-  try {
-    const clientData = req.body;
-    if (!clientData || typeof clientData !== 'object') {
-      return res.status(400).json({ error: 'Invalid data structure: body is missing or not an object' });
-    }
-     // Add more specific validation
-    if (!Array.isArray(clientData.recipes) || !Array.isArray(clientData.groceryList) || !Array.isArray(clientData.deletedRecipeIds) || !Array.isArray(clientData.deletedGroceryIds)) {
-        return res.status(400).json({ error: 'Invalid data structure: missing required arrays' });
-    }
-    
-    const serverData = await readData();
-    
-    // 1. Get the definitive list of all deleted IDs from both sources.
-    const allDeletedRecipeIds = mergeDeletedIds(serverData.deletedRecipeIds, clientData.deletedRecipeIds);
-    const allDeletedGroceryIds = mergeDeletedIds(serverData.deletedGroceryIds, clientData.deletedGroceryIds);
-
-    // 2. Create "active" lists by filtering out deleted items *before* merging.
-    const activeServerRecipes = (serverData.recipes || []).filter(r => r && r.id && !allDeletedRecipeIds.includes(r.id));
-    const activeClientRecipes = (clientData.recipes || []).filter(r => r && r.id && !allDeletedRecipeIds.includes(r.id));
-    
-    const activeServerGrocery = (serverData.groceryList || []).filter(i => i && i.id && !allDeletedGroceryIds.includes(i.id));
-    const activeClientGrocery = (clientData.groceryList || []).filter(i => i && i.id && !allDeletedGroceryIds.includes(i.id));
-
-    // 3. Merge only the active items. The merge function now only has to worry about content and order, not deletions.
-    const finalRecipesRaw = mergeOrderedList(activeServerRecipes, activeClientRecipes);
-    const finalGrocery = mergeOrderedList(activeServerGrocery, activeClientGrocery);
-
-    // 4. Process images: save base64 data to files and strip it from the recipe objects
-    const finalRecipes = await Promise.all(finalRecipesRaw.map(async (recipe) => {
-        if (recipe.imageBase64) {
-            try {
-                const imagePath = path.join(UPLOADS_DIR, `${recipe.imageUrl}.jpg`);
-                // Use a temporary file and rename to avoid partial writes during sync
-                const tempPath = imagePath + '.tmp';
-                await fs.writeFile(tempPath, recipe.imageBase64, { encoding: 'base64' });
-                await fs.rename(tempPath, imagePath);
-                
-                const { imageBase64, ...recipeForStorage } = recipe;
-                return recipeForStorage;
-            } catch (e) {
-                console.error(`Failed to save image for recipe ${recipe.id}:`, e);
-                // If saving fails, still return the recipe without base64 to prevent memory issues
-                const { imageBase64, ...recipeForStorage } = recipe;
-                return recipeForStorage;
+        
+        // Filter out any stored item that was deleted
+        const finalGrocery = Array.from(storedGroceryMap.values()).filter(g => !mergedDelGrocery.includes(g.id));
+        
+        // 3. Merge Recipes
+        const clientRecipes = clientData.recipes || [];
+        const storedRecipesMap = new Map((storedData.recipes || []).map(r => [r.id, r]));
+        
+        for (const recipe of clientRecipes) {
+            if (mergedDelRecipes.includes(recipe.id)) {
+                storedRecipesMap.delete(recipe.id);
+                continue;
+            }
+            
+            // Handle saving image base64 if provided
+            if (recipe.imageBase64 && recipe.imageUrl) {
+                try {
+                    const buffer = Buffer.from(recipe.imageBase64, 'base64');
+                    const filename = `${recipe.imageUrl}.jpg`;
+                    const filepath = path.join(UPLOADS_DIR, filename);
+                    await fs.writeFile(filepath, buffer);
+                } catch (imgError) {
+                    console.error(`Error saving image for recipe ${recipe.id}:`, imgError);
+                }
+            }
+            
+            // Clean up imageBase64 before saving to disk
+            const { imageBase64, ...recipeToSave } = recipe;
+            
+            const existing = storedRecipesMap.get(recipe.id);
+            if (!existing) {
+                storedRecipesMap.set(recipe.id, recipeToSave);
+            } else {
+                const dateExisting = new Date(existing.updatedAt || 0).getTime();
+                const dateRecipe = new Date(recipe.updatedAt || 0).getTime();
+                if (dateRecipe > dateExisting) {
+                    storedRecipesMap.set(recipe.id, recipeToSave);
+                }
             }
         }
-        return recipe;
-    }));
-
-    const DELETED_ID_HISTORY_LIMIT = 1000;
-
-    const finalDataToSave = {
-      recipes: finalRecipes,
-      groceryList: finalGrocery,
-      lastUpdated: new Date().toISOString(),
-      deletedRecipeIds: allDeletedRecipeIds.slice(-DELETED_ID_HISTORY_LIMIT),
-      deletedGroceryIds: allDeletedGroceryIds.slice(-DELETED_ID_HISTORY_LIMIT),
-    };
+        
+        // Filter out any stored recipe that was deleted
+        const finalRecipes = Array.from(storedRecipesMap.values()).filter(r => !mergedDelRecipes.includes(r.id));
+        
+        const finalData = {
+            recipes: finalRecipes,
+            groceryList: finalGrocery,
+            deletedRecipeIds: mergedDelRecipes,
+            deletedGroceryIds: mergedDelGrocery
+        };
+        
+        await saveData(finalData);
+        return finalData;
+    });
     
-    if (await writeData(finalDataToSave)) {
-      // The response now includes the authoritative list of deleted IDs,
-      // curing the "sync amnesia" bug.
-      res.status(200).json(finalDataToSave);
-    } else {
-      res.status(500).json({ error: 'Failed to save data' });
-    }
-  } catch (error) {
-    console.error('Error in /data POST endpoint:', error);
-    res.status(500).json({ error: 'An internal server error occurred.' });
-  }
+    res.status(200).json(mergedResult);
 });
 
+// POST /api/recipe - handles recipe parsing using Gemini (placed directly on backend)
+app.post('/api/recipe', async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+        return res.status(500).json({ error: "Missing API key on server" });
+    }
+    const { action, payload } = req.body;
+    try {
+        const { GoogleGenAI, Type } = require('@google/genai');
+        const ai = new GoogleGenAI({
+            apiKey: apiKey,
+            httpOptions: {
+                headers: {
+                    'User-Agent': 'aistudio-build',
+                }
+            }
+        });
+        
+        const recipeSchema = {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING, description: "The title of the recipe." },
+                categories: { 
+                    type: Type.ARRAY, 
+                    items: { type: Type.STRING },
+                    description: "A list of categories for the recipe."
+                },
+                servings: { type: Type.NUMBER, description: "Number of servings." },
+                servingsUnit: { type: Type.STRING, description: "Unit (e.g., persons)." },
+                ingredients: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            name: { type: Type.STRING },
+                            quantity: { type: Type.NUMBER },
+                            unit: { type: Type.STRING },
+                            isSectionHeader: { type: Type.BOOLEAN },
+                        },
+                        required: ['name'],
+                    }
+                },
+                instructions: { 
+                    type: Type.ARRAY, 
+                    items: { type: Type.STRING }
+                },
+                imagePrompt: { type: Type.STRING, description: "English prompt for image generation." }
+            },
+            required: ['title', 'categories', 'ingredients', 'instructions', 'imagePrompt'],
+        };
 
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+        const generateWithFallback = async (contents, schema) => {
+            const candidateModels = ['gemini-2.5-flash', 'gemini-3.7-flash', 'gemini-flash-latest'];
+            let lastError = null;
+            for (const model of candidateModels) {
+                try {
+                    const response = await ai.models.generateContent({
+                        model,
+                        contents,
+                        config: {
+                            responseMimeType: "application/json",
+                            responseSchema: schema,
+                        },
+                    });
+                    if (response.text) {
+                        return JSON.parse(response.text);
+                    }
+                } catch (err) {
+                    console.warn(`Model ${model} failed in server.js, trying fallback:`, err?.message || err);
+                    lastError = err;
+                }
+            }
+            throw lastError || new Error("Extraction failed on all available models");
+        };
+
+        if (action === 'parseFromImage') {
+            const contents = {
+                parts: [
+                    payload.imagePart,
+                    { text: `Extract recipe details from this image. Valid categories: ${payload.allCategories.join(', ')}. Response in French (except imagePrompt).` }
+                ]
+            };
+            const result = await generateWithFallback(contents, recipeSchema);
+            return res.status(200).json(result);
+        } else if (action === 'parseFromUrl') {
+            const contents = `Extract recipe from ${payload.url}. Categories: ${payload.allCategories.join(', ')}. Response in French (except imagePrompt).`;
+            const result = await generateWithFallback(contents, recipeSchema);
+            return res.status(200).json(result);
+        } else if (action === 'generateImage') {
+            const imageModels = ['imagen-4.0-generate-001', 'imagen-3.0-generate-002'];
+            for (const model of imageModels) {
+                try {
+                    const response = await ai.models.generateImages({
+                        model,
+                        prompt: payload.prompt,
+                        config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '1:1' },
+                    });
+                    if (response.generatedImages?.[0]?.image?.imageBytes) {
+                        return res.status(200).json({ imageBase64: response.generatedImages[0].image.imageBytes });
+                    }
+                } catch (err) {
+                    console.warn(`Image model ${model} failed in server.js, trying fallback:`, err?.message || err);
+                }
+            }
+            throw new Error("Generation failed");
+        } else {
+            return res.status(400).json({ error: 'Invalid action' });
+        }
+    } catch (error) {
+        console.error("Gemini server-side API error in server.js:", error);
+        return res.status(500).json({ error: error.message || "Service error" });
+    }
+});
+
+// Start listening
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server is running on port ${PORT}`);
 });
