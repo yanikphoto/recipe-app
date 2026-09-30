@@ -41,15 +41,8 @@ export const apiSync = {
   async saveData(data: AppData, lastSyncTime: Date | null): Promise<AppData | null> {
     const lastSyncTimestamp = lastSyncTime ? lastSyncTime.getTime() : 0;
 
-    // 1. Identify recipes that need their image uploaded. These are new/updated recipes with local images.
-    const recipesWithImagesToUpload = data.recipes.filter(recipe => {
-        const isLocalImage = recipe.imageUrl && !recipe.imageUrl.startsWith('data:') && !recipe.imageUrl.startsWith('http');
-        const recipeLastUpdated = recipe.updatedAt ? new Date(recipe.updatedAt).getTime() : 0;
-        return isLocalImage && (recipeLastUpdated > lastSyncTimestamp);
-    });
-
-    // 2. Create and send the main payload without any images.
-    // This syncs all text data, grocery lists, and deletions immediately and should be small.
+    // 1. Create and send the main payload without any images.
+    // This syncs all text data, grocery lists, and deletions immediately.
     const mainPayload: AppData = {
         ...data,
         recipes: data.recipes.map(r => {
@@ -60,11 +53,25 @@ export const apiSync = {
 
     const mainSyncResponse = await postData(mainPayload);
 
+    // 2. Determine which recipe images need uploading.
+    // An image needs upload if it is local AND:
+    // a) updated since last sync, OR
+    // b) missing on the server (e.g., after server container restart/wipe)
+    const serverImageIds = new Set(mainSyncResponse?.availableImageIds || []);
+    
+    const recipesWithImagesToUpload = data.recipes.filter(recipe => {
+        const isLocalImage = recipe.imageUrl && !recipe.imageUrl.startsWith('data:') && !recipe.imageUrl.startsWith('http');
+        if (!isLocalImage) return false;
+        const recipeLastUpdated = recipe.updatedAt ? new Date(recipe.updatedAt).getTime() : 0;
+        const isNewOrUpdated = recipeLastUpdated > lastSyncTimestamp;
+        const isMissingOnServer = mainSyncResponse?.availableImageIds ? !serverImageIds.has(recipe.imageUrl) : false;
+        return isNewOrUpdated || isMissingOnServer;
+    });
+
     // 3. After the main sync, upload images in the background in small batches.
-    // This runs as a fire-and-forget process to not block the UI.
     if (recipesWithImagesToUpload.length > 0) {
         (async () => {
-            const IMAGE_UPLOAD_BATCH_SIZE = 1; // Batch size of 1 is safest for free tier limits.
+            const IMAGE_UPLOAD_BATCH_SIZE = 1;
 
             for (let i = 0; i < recipesWithImagesToUpload.length; i += IMAGE_UPLOAD_BATCH_SIZE) {
                 const batch = recipesWithImagesToUpload.slice(i, i + IMAGE_UPLOAD_BATCH_SIZE);
@@ -97,13 +104,14 @@ export const apiSync = {
                     deletedGroceryIds: [],
                 };
                 
-                // Post the batch. If it fails, it will be retried on a future app start/sync cycle.
                 await postData(imagePayload);
             }
+            
+            // Dispatch event so StoredImage components can retry fetching if needed
+            window.dispatchEvent(new CustomEvent('recipe_images_updated'));
         })();
     }
 
-    // 4. Return the result of the main text-only sync. `App.tsx` will use this to update state.
     return mainSyncResponse;
   },
 
