@@ -61,7 +61,17 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
 
     loadImage();
 
+    const handleImagesUpdated = () => {
+      // Retry loading image if we currently don't have a valid custom objectUrl
+      if (!objectUrl) {
+        loadImage();
+      }
+    };
+
+    window.addEventListener('recipe_images_updated', handleImagesUpdated);
+
     return () => {
+      window.removeEventListener('recipe_images_updated', handleImagesUpdated);
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
       }
