@@ -26,7 +26,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 async function loadData() {
     try {
         if (!fsSync.existsSync(DATA_FILE)) {
-            const initialData = { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [] };
+            const initialData = { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [], images: {} };
             await fs.writeFile(DATA_FILE, JSON.stringify(initialData, null, 2));
             return initialData;
         }
@@ -36,11 +36,12 @@ async function loadData() {
             recipes: parsed.recipes || [],
             groceryList: parsed.groceryList || [],
             deletedRecipeIds: parsed.deletedRecipeIds || [],
-            deletedGroceryIds: parsed.deletedGroceryIds || []
+            deletedGroceryIds: parsed.deletedGroceryIds || [],
+            images: parsed.images || {}
         };
     } catch (error) {
         console.error("Error reading data file:", error);
-        return { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [] };
+        return { recipes: [], groceryList: [], deletedRecipeIds: [], deletedGroceryIds: [], images: {} };
     }
 }
 
@@ -52,6 +53,54 @@ async function saveData(data) {
         console.error("Error writing data file:", error);
     }
 }
+
+// Helper to get available image IDs
+function getAvailableImageIds(data) {
+    const idsFromData = Object.keys(data.images || {});
+    let idsFromDisk = [];
+    try {
+        if (fsSync.existsSync(UPLOADS_DIR)) {
+            const files = fsSync.readdirSync(UPLOADS_DIR);
+            idsFromDisk = files
+                .filter(f => !f.endsWith('.tmp'))
+                .map(f => f.replace(/\.(jpg|jpeg|png|webp)$/i, ''));
+        }
+    } catch (e) {}
+    return Array.from(new Set([...idsFromData, ...idsFromDisk]));
+}
+
+// Route for serving images with dynamic fallback from data.json base64 store
+app.get('/uploads/:filename', async (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    
+    if (fsSync.existsSync(filePath)) {
+        return res.sendFile(filePath);
+    }
+
+    const imageId = filename.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+    const data = await loadData();
+
+    if (data.images && data.images[imageId]) {
+        const base64Data = data.images[imageId];
+        const imgBuffer = Buffer.from(base64Data, 'base64');
+
+        try {
+            await fs.writeFile(filePath, imgBuffer);
+        } catch (e) {
+            console.error('Failed to write back dynamic image:', e);
+        }
+
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
+        return res.send(imgBuffer);
+    }
+
+    return res.status(404).json({ error: 'Image not found' });
+});
+
+// Serve image files statically
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // --- Simple Async Lock to prevent race conditions ---
 let isLocked = false;
@@ -79,7 +128,9 @@ app.get('/data', async (req, res) => {
     const data = await withLock(async () => {
         return await loadData();
     });
-    res.status(200).json(data);
+    const availableImageIds = getAvailableImageIds(data);
+    const { images, ...dataToSend } = data;
+    res.status(200).json({ ...dataToSend, availableImageIds });
 });
 
 // POST /data - merges and synchronizes full data state
@@ -88,6 +139,7 @@ app.post('/data', async (req, res) => {
     
     const mergedResult = await withLock(async () => {
         const storedData = await loadData();
+        const imagesStore = storedData.images || {};
         
         // 1. Merge deleted item lists
         const clientDelRecipes = clientData.deletedRecipeIds || [];
@@ -118,7 +170,6 @@ app.post('/data', async (req, res) => {
             }
         }
         
-        // Filter out any stored item that was deleted
         const finalGrocery = Array.from(storedGroceryMap.values()).filter(g => !mergedDelGrocery.includes(g.id));
         
         // 3. Merge Recipes
@@ -131,9 +182,9 @@ app.post('/data', async (req, res) => {
                 continue;
             }
             
-            // Handle saving image base64 if provided
             if (recipe.imageBase64 && recipe.imageUrl) {
                 try {
+                    imagesStore[recipe.imageUrl] = recipe.imageBase64;
                     const buffer = Buffer.from(recipe.imageBase64, 'base64');
                     const filename = `${recipe.imageUrl}.jpg`;
                     const filepath = path.join(UPLOADS_DIR, filename);
@@ -143,7 +194,6 @@ app.post('/data', async (req, res) => {
                 }
             }
             
-            // Clean up imageBase64 before saving to disk
             const { imageBase64, ...recipeToSave } = recipe;
             
             const existing = storedRecipesMap.get(recipe.id);
@@ -158,18 +208,40 @@ app.post('/data', async (req, res) => {
             }
         }
         
-        // Filter out any stored recipe that was deleted
         const finalRecipes = Array.from(storedRecipesMap.values()).filter(r => !mergedDelRecipes.includes(r.id));
         
+        // Clean up deleted recipe images
+        const activeImageUrls = new Set(finalRecipes.map(r => r.imageUrl).filter(Boolean));
+        for (const imgId in imagesStore) {
+            if (!activeImageUrls.has(imgId)) {
+                delete imagesStore[imgId];
+                try {
+                    const diskPath = path.join(UPLOADS_DIR, `${imgId}.jpg`);
+                    if (fsSync.existsSync(diskPath)) {
+                        await fs.unlink(diskPath);
+                    }
+                } catch (e) {}
+            }
+        }
+
         const finalData = {
             recipes: finalRecipes,
             groceryList: finalGrocery,
             deletedRecipeIds: mergedDelRecipes,
-            deletedGroceryIds: mergedDelGrocery
+            deletedGroceryIds: mergedDelGrocery,
+            images: imagesStore
         };
         
         await saveData(finalData);
-        return finalData;
+
+        const availableImageIds = getAvailableImageIds(finalData);
+        return {
+            recipes: finalRecipes,
+            groceryList: finalGrocery,
+            deletedRecipeIds: mergedDelRecipes,
+            deletedGroceryIds: mergedDelGrocery,
+            availableImageIds
+        };
     });
     
     res.status(200).json(mergedResult);

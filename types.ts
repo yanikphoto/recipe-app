@@ -36,4 +36,5 @@ export type AppData = {
   lastUpdated?: string;
   deletedRecipeIds?: string[];
   deletedGroceryIds?: string[];
+  availableImageIds?: string[];
 };
