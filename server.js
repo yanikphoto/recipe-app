@@ -184,8 +184,9 @@ app.post('/data', async (req, res) => {
             
             if (recipe.imageBase64 && recipe.imageUrl) {
                 try {
-                    imagesStore[recipe.imageUrl] = recipe.imageBase64;
-                    const buffer = Buffer.from(recipe.imageBase64, 'base64');
+                    const cleanBase64 = recipe.imageBase64.replace(/^data:image\/\w+;base64,/, '');
+                    imagesStore[recipe.imageUrl] = cleanBase64;
+                    const buffer = Buffer.from(cleanBase64, 'base64');
                     const filename = `${recipe.imageUrl}.jpg`;
                     const filepath = path.join(UPLOADS_DIR, filename);
                     await fs.writeFile(filepath, buffer);

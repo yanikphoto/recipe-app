@@ -12,7 +12,7 @@ import BottomNav from './components/BottomNav';
 import SearchModal from './components/SearchModal';
 import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
-import { numberToFraction } from './services/fractionUtils';
+import { normalizeRecipeImage } from './services/imageUtils';
 
 const App: React.FC = () => {
     const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
@@ -144,7 +144,14 @@ const App: React.FC = () => {
             const online = await apiSync.checkHealth();
             setIsOnline(online);
             if (online) {
-                const inFlightLocalData = getFullLocalData();
+                let inFlightLocalData = getFullLocalData();
+                const normalizedRecipes = await Promise.all(inFlightLocalData.recipes.map(r => normalizeRecipeImage(r)));
+                const hasChanged = normalizedRecipes.some((r, i) => r.imageUrl !== inFlightLocalData.recipes[i]?.imageUrl);
+                if (hasChanged) {
+                    inFlightLocalData = { ...inFlightLocalData, recipes: normalizedRecipes };
+                    setFullLocalData(inFlightLocalData);
+                }
+
                 const serverResponse = await apiSync.saveData(inFlightLocalData, lastSyncTimeRef.current);
                 if (serverResponse) {
                     for (const r of serverResponse.recipes) {
@@ -156,6 +163,8 @@ const App: React.FC = () => {
                     const mergedData = mergeData(getFullLocalData(), serverResponse);
                     setFullLocalData(mergedData);
                     lastSyncTimeRef.current = new Date();
+
+                    window.dispatchEvent(new CustomEvent('recipe_images_updated'));
                 }
             } else { setFullLocalData(getFullLocalData()); }
         } catch (e) { setIsOnline(false); } finally {
@@ -236,23 +245,27 @@ const App: React.FC = () => {
     const setActiveScreen = (screen: Screen) => { if (screen === 'search') setIsSearchOpen(true); else { setIsSearchOpen(false); setCurrentScreen(screen); } };
     const viewRecipe = (recipe: Recipe) => { setSelectedRecipe(recipe); setCurrentScreen('recipe-detail'); setIsSearchOpen(false); };
     
-    const addRecipe = (recipe: Recipe) => {
+    const addRecipe = async (recipe: Recipe) => {
+        const normalizedRecipe = await normalizeRecipeImage(recipe);
         setRecipes(prev => {
-            const updated = [recipe, ...prev.filter(r => r.id !== recipe.id)];
+            const updated = [normalizedRecipe, ...prev.filter(r => r.id !== normalizedRecipe.id)];
             localStorage.setItem('family_recipes', JSON.stringify(updated));
             return updated;
         });
         setCurrentScreen('recipes');
+        setTimeout(() => syncData(), 50);
     };
 
     const updateRecipe = async (updatedRecipe: Recipe) => {
-        let finalRecipe = { ...updatedRecipe, updatedAt: new Date().toISOString() };
+        let finalRecipe = await normalizeRecipeImage(updatedRecipe);
+        finalRecipe = { ...finalRecipe, updatedAt: new Date().toISOString() };
         setRecipes(prev => {
             const updated = prev.map(r => r.id === finalRecipe.id ? finalRecipe : r);
             localStorage.setItem('family_recipes', JSON.stringify(updated));
             return updated;
         });
         setSelectedRecipe(prev => prev?.id === finalRecipe.id ? finalRecipe : prev);
+        setTimeout(() => syncData(), 50);
     };
 
     const deleteRecipe = (id: string) => {
