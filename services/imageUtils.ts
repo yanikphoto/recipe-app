@@ -1,4 +1,6 @@
 // services/imageUtils.ts
+import { imageStore } from './imageStore';
+
 const MAX_DIMENSION = 1024;
 const TARGET_MIME_TYPE = 'image/jpeg';
 const IMAGE_QUALITY = 0.8;
@@ -53,3 +55,25 @@ export const fileToDataUrl = (file: File): Promise<string> => {
         reader.onerror = error => reject(error);
     });
 };
+
+/**
+ * Normalizes a recipe by saving any inline base64 image data URL into IndexedDB
+ * and assigning a proper UUID imageId to recipe.imageUrl.
+ */
+export const normalizeRecipeImage = async <T extends { imageUrl: string; updatedAt?: string }>(recipe: T): Promise<T> => {
+    if (recipe.imageUrl && recipe.imageUrl.startsWith('data:')) {
+        const newImageId = crypto.randomUUID();
+        try {
+            await imageStore.saveImage(newImageId, recipe.imageUrl);
+            return {
+                ...recipe,
+                imageUrl: newImageId,
+                updatedAt: recipe.updatedAt || new Date().toISOString(),
+            };
+        } catch (e) {
+            console.error('Failed to normalize recipe image:', e);
+        }
+    }
+    return recipe;
+};
+

@@ -56,7 +56,7 @@ export const apiSync = {
     // 2. Determine which recipe images need uploading.
     // An image needs upload if it is local AND:
     // a) updated since last sync, OR
-    // b) missing on the server (e.g., after server container restart/wipe)
+    // b) missing on the server
     const serverImageIds = new Set(mainSyncResponse?.availableImageIds || []);
     
     const recipesWithImagesToUpload = data.recipes.filter(recipe => {
@@ -64,7 +64,7 @@ export const apiSync = {
         if (!isLocalImage) return false;
         const recipeLastUpdated = recipe.updatedAt ? new Date(recipe.updatedAt).getTime() : 0;
         const isNewOrUpdated = recipeLastUpdated > lastSyncTimestamp;
-        const isMissingOnServer = mainSyncResponse?.availableImageIds ? !serverImageIds.has(recipe.imageUrl) : false;
+        const isMissingOnServer = !serverImageIds.has(recipe.imageUrl);
         return isNewOrUpdated || isMissingOnServer;
     });
 
@@ -81,15 +81,20 @@ export const apiSync = {
                     try {
                         const blob = await imageStore.getImage(recipe.imageUrl);
                         if (blob) {
-                            imageBase64 = await new Promise<string>((resolve, reject) => {
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                    const result = reader.result as string;
-                                    resolve(result ? result.split(',')[1] : '');
-                                };
-                                reader.onerror = reject;
-                                reader.readAsDataURL(blob);
-                            });
+                            if (blob instanceof Blob) {
+                                imageBase64 = await new Promise<string>((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                        const result = reader.result as string;
+                                        resolve(result ? (result.includes(',') ? result.split(',')[1] : result) : '');
+                                    };
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(blob);
+                                });
+                            } else if (typeof blob === 'string') {
+                                const str = blob as string;
+                                imageBase64 = str.includes(',') ? str.split(',')[1] : str;
+                            }
                         }
                     } catch (e) {
                         console.error(`Could not load image ${recipe.imageUrl} for sync.`, e);
@@ -97,14 +102,18 @@ export const apiSync = {
                     return { ...recipe, imageBase64 };
                 }));
 
-                const imagePayload: AppData = {
-                    recipes: recipesWithImages,
-                    groceryList: [],
-                    deletedRecipeIds: [],
-                    deletedGroceryIds: [],
-                };
-                
-                await postData(imagePayload);
+                const validRecipes = recipesWithImages.filter(r => r.imageBase64);
+
+                if (validRecipes.length > 0) {
+                    const imagePayload: AppData = {
+                        recipes: validRecipes,
+                        groceryList: [],
+                        deletedRecipeIds: [],
+                        deletedGroceryIds: [],
+                    };
+                    
+                    await postData(imagePayload);
+                }
             }
             
             // Dispatch event so StoredImage components can retry fetching if needed

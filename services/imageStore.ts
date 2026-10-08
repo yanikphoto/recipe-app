@@ -23,8 +23,19 @@ function getDB(): Promise<IDBDatabase> {
   });
 }
 
-const base64ToBlob = (base64: string, mimeType: string = 'image/jpeg'): Blob => {
-    const byteCharacters = atob(base64);
+const base64ToBlob = (dataStr: string, defaultMimeType: string = 'image/jpeg'): Blob => {
+    let mimeType = defaultMimeType;
+    let rawBase64 = dataStr;
+    if (dataStr.startsWith('data:')) {
+        const matches = dataStr.match(/^data:([^;]+);base64,(.*)$/);
+        if (matches) {
+            mimeType = matches[1] || defaultMimeType;
+            rawBase64 = matches[2];
+        } else if (dataStr.includes(',')) {
+            rawBase64 = dataStr.split(',')[1];
+        }
+    }
+    const byteCharacters = atob(rawBase64);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
