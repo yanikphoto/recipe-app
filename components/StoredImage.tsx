@@ -34,6 +34,7 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
       try {
         const localBlob = await imageStore.getImage(imageId);
         if (localBlob) {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
           objectUrl = URL.createObjectURL(localBlob);
           setImageUrl(objectUrl);
         } else {
@@ -44,6 +45,7 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
             const serverBlob = await response.blob();
             // Store the fetched image locally for next time.
             await imageStore.saveImage(imageId, serverBlob);
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
             objectUrl = URL.createObjectURL(serverBlob);
             setImageUrl(objectUrl);
           } else {
@@ -62,8 +64,8 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
     loadImage();
 
     const handleImagesUpdated = () => {
-      // Retry loading image if we currently don't have a valid custom objectUrl
-      if (!objectUrl) {
+      // Retry loading image if we currently don't have a valid custom objectUrl or are showing fallback
+      if (!objectUrl || imageUrl === fallbackImage) {
         loadImage();
       }
     };
