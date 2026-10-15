@@ -13,6 +13,7 @@ import SearchModal from './components/SearchModal';
 import { DEFAULT_CATEGORIES } from './constants';
 import TimerScreen from './components/TimerScreen';
 import { normalizeRecipeImage } from './services/imageUtils';
+import { numberToFraction } from './services/fractionUtils';
 
 const App: React.FC = () => {
     const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
@@ -285,15 +286,18 @@ const App: React.FC = () => {
     
     const toggleGroceryItemFromIngredient = (ingredient: Ingredient) => {
         const str = `${ingredient.quantity ? `${numberToFraction(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
-        const existing = groceryList.find(item => item.name.toLowerCase() === str.toLowerCase());
+        const existing = groceryList.find(item => item.name.toLowerCase() === str.toLowerCase() || (ingredient.name && item.name.toLowerCase().includes(ingredient.name.toLowerCase())));
         if (existing) deleteGroceryItem(existing.id); else addCustomGroceryItem(str);
     };
         
     const addCustomGroceryItem = (name: string) => {
         setGroceryList(prev => {
             const minPos = prev.length > 0 ? Math.min(...prev.map(i => i.position || 0)) : 0;
+            const generateId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
+                ? crypto.randomUUID() 
+                : (Date.now().toString(36) + Math.random().toString(36).substring(2, 9));
             const newItem: GroceryListItem = { 
-                id: crypto.randomUUID(), 
+                id: generateId(), 
                 name, 
                 completed: false, 
                 updatedAt: new Date().toISOString(),
@@ -303,6 +307,7 @@ const App: React.FC = () => {
             localStorage.setItem('family_grocery', JSON.stringify(updated));
             return updated;
         });
+        setTimeout(() => syncData(), 50);
     };
 
     const toggleGroceryItem = (id: string) => {
@@ -311,6 +316,7 @@ const App: React.FC = () => {
             localStorage.setItem('family_grocery', JSON.stringify(updated));
             return updated;
         });
+        setTimeout(() => syncData(), 50);
     };
 
     const updateGroceryItem = (id: string, name: string) => {
@@ -319,6 +325,7 @@ const App: React.FC = () => {
             localStorage.setItem('family_grocery', JSON.stringify(updated));
             return updated;
         });
+        setTimeout(() => syncData(), 50);
     };
 
     const deleteGroceryItem = (id: string) => {
@@ -332,6 +339,7 @@ const App: React.FC = () => {
             localStorage.setItem('family_deleted_grocery', JSON.stringify(updated));
             return updated;
         });
+        setTimeout(() => syncData(), 50);
     };
 
     const moveGroceryItem = (oldIndex: number, newIndex: number) => {
