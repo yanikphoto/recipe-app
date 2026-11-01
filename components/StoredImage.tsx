@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { imageStore } from '../services/imageStore';
-
-const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
+import { firestoreSync } from '../services/firestoreSync';
 
 type StoredImageProps = {
   imageId: string;
@@ -16,6 +14,7 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
 
   useEffect(() => {
     let objectUrl: string | undefined;
+    let isCancelled = false;
 
     const loadImage = async () => {
       setIsLoading(true);
@@ -32,59 +31,48 @@ const StoredImage: React.FC<StoredImageProps> = ({ imageId, alt, className }) =>
       }
 
       try {
-        const localBlob = await imageStore.getImage(imageId);
-        if (localBlob) {
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
-          objectUrl = URL.createObjectURL(localBlob);
-          setImageUrl(objectUrl);
-        } else {
-          // Image not found locally, fetch from the server.
-          const serverImageUrl = `${API_BASE_URL}/uploads/${imageId}.jpg`;
-          const response = await fetch(serverImageUrl);
-          if (response.ok) {
-            const serverBlob = await response.blob();
-            // Store the fetched image locally for next time.
-            await imageStore.saveImage(imageId, serverBlob);
+        const blob = await firestoreSync.getImage(imageId);
+        if (!isCancelled) {
+          if (blob) {
             if (objectUrl) URL.revokeObjectURL(objectUrl);
-            objectUrl = URL.createObjectURL(serverBlob);
+            objectUrl = URL.createObjectURL(blob);
             setImageUrl(objectUrl);
           } else {
-            console.warn(`Image with id ${imageId} not found locally or on server.`);
             setImageUrl(fallbackImage);
           }
         }
       } catch (error) {
-        console.error("Failed to load image:", error);
-        setImageUrl(fallbackImage);
+        if (!isCancelled) setImageUrl(fallbackImage);
       } finally {
-        setIsLoading(false);
+        if (!isCancelled) setIsLoading(false);
       }
     };
 
     loadImage();
 
-    const handleImagesUpdated = () => {
-      // Retry loading image if we currently don't have a valid custom objectUrl or are showing fallback
-      if (!objectUrl || imageUrl === fallbackImage) {
-        loadImage();
-      }
-    };
-
-    window.addEventListener('recipe_images_updated', handleImagesUpdated);
-
     return () => {
-      window.removeEventListener('recipe_images_updated', handleImagesUpdated);
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
+      isCancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [imageId]);
 
-  if (isLoading) {
-    return <div className={`${className} bg-gray-200 animate-pulse`}></div>;
-  }
-
-  return <img src={imageUrl} alt={alt} className={className} />;
+  return (
+    <div className={`relative ${className || ''}`}>
+      {isLoading && (
+        <div className="absolute inset-0 bg-gray-200 animate-pulse rounded-2xl flex items-center justify-center">
+          <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+      )}
+      <img
+        src={imageUrl}
+        alt={alt}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'} ${className || ''}`}
+        onError={() => setImageUrl(fallbackImage)}
+      />
+    </div>
+  );
 };
 
 export default StoredImage;
