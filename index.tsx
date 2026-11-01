@@ -2,13 +2,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
-// PWA Service Worker Registration
+// PWA Service Worker Registration & Cache Refresh
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(registration => {
-      console.log('Service Worker registered: ', registration);
-    }).catch(registrationError => {
-      console.log('Service Worker registration failed: ', registrationError);
+      registration.update();
+      console.log('Service Worker updated');
+    }).catch(err => {
+      console.log('SW registration error:', err);
     });
   });
 }

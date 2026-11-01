@@ -1,8 +1,6 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Recipe, Screen, GroceryListItem, Ingredient, AppData } from './types';
-import { apiSync } from './services/apiSync';
-import { imageStore } from './services/imageStore';
+import { Recipe, Screen, GroceryListItem, Ingredient } from './types';
+import { firestoreSync } from './services/firestoreSync';
 import WelcomeScreen from './components/WelcomeScreen';
 import AddRecipeScreen from './components/AddRecipeScreen';
 import RecipeListScreen from './components/RecipeListScreen';
@@ -22,12 +20,7 @@ const App: React.FC = () => {
     const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
     const [recipeToDelete, setRecipeToDelete] = useState<string | null>(null);
     const [groceryList, setGroceryList] = useState<GroceryListItem[]>([]);
-    const [deletedRecipeIds, setDeletedRecipeIds] = useState<string[]>([]);
-    const [deletedGroceryIds, setDeletedGroceryIds] = useState<string[]>([]);
-
-    const [isOnline, setIsOnline] = useState(false);
-    const lastSyncTimeRef = useRef<Date | null>(null);
-    const syncInProgressRef = useRef(false);
+    const [isOnline, setIsOnline] = useState(true);
     const [syncInProgressUI, setSyncInProgressUI] = useState(false);
 
     // Timer state
@@ -43,7 +36,7 @@ const App: React.FC = () => {
     const alarmIntervalRef = useRef<number | null>(null);
     
     const allCategories = useMemo(() => {
-        const categoriesFromRecipes = recipes.flatMap(r => r.categories);
+        const categoriesFromRecipes = recipes.flatMap(r => r.categories || []);
         return [...new Set([...DEFAULT_CATEGORIES, ...categoriesFromRecipes])];
     }, [recipes]);
     
@@ -57,129 +50,43 @@ const App: React.FC = () => {
 
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
-    const getFullLocalData = (): AppData => {
-        const safeJsonParse = (key: string, defaultValue: any[] = []) => {
-            try {
-                const item = localStorage.getItem(key);
-                const parsed = item ? JSON.parse(item) : defaultValue;
-                return Array.isArray(parsed) ? parsed : defaultValue;
-            } catch (e) { return defaultValue; }
-        };
-
-        const recipes = safeJsonParse('family_recipes').filter((r: Recipe) => r && r.id);
-        const groceryList = safeJsonParse('family_grocery').filter((i: GroceryListItem) => i && i.id);
-        
-        // Migration: assign positions to existing grocery items
-        let needsSave = false;
-        groceryList.forEach((item: GroceryListItem, index: number) => {
-            if (item.position === undefined) {
-                item.position = index * 1000;
-                needsSave = true;
-            }
-        });
-        if (needsSave) localStorage.setItem('family_grocery', JSON.stringify(groceryList));
-
-        return {
-            recipes,
-            groceryList,
-            deletedRecipeIds: safeJsonParse('family_deleted_recipes'),
-            deletedGroceryIds: safeJsonParse('family_deleted_grocery')
-        };
-    };
-    
-    const setFullLocalData = (data: AppData) => {
-        setRecipes(data.recipes);
-        setGroceryList(data.groceryList);
-        setDeletedRecipeIds(data.deletedRecipeIds || []);
-        setDeletedGroceryIds(data.deletedGroceryIds || []);
-
-        localStorage.setItem('family_recipes', JSON.stringify(data.recipes));
-        localStorage.setItem('family_grocery', JSON.stringify(data.groceryList));
-        localStorage.setItem('family_deleted_recipes', JSON.stringify(data.deletedRecipeIds || []));
-        localStorage.setItem('family_deleted_grocery', JSON.stringify(data.deletedGroceryIds || []));
-    };
-
-    const mergeData = (local: AppData, server: AppData): AppData => {
-        const MAX_DELETED = 1000;
-        // 1. Merge the set of deleted IDs (union) and cap size. 
-        // Put local last so recent local deletions aren't sliced off if the array is too long.
-        const combinedDeletedRecipes = new Set(Array.from(new Set([...(server.deletedRecipeIds || []), ...(local.deletedRecipeIds || [])])).slice(-MAX_DELETED));
-        const combinedDeletedGrocery = new Set(Array.from(new Set([...(server.deletedGroceryIds || []), ...(local.deletedGroceryIds || [])])).slice(-MAX_DELETED));
-
-        // 2. Helper to merge items using "Last Write Wins"
-        const mergeItems = <T extends { id: string; updatedAt?: string }>(l: T[], s: T[]): T[] => {
-            const map = new Map<string, T>();
-            [...l, ...s].forEach(item => {
-                const existing = map.get(item.id);
-                if (!existing || (item.updatedAt && (!existing.updatedAt || new Date(item.updatedAt) > new Date(existing.updatedAt)))) {
-                    map.set(item.id, item);
-                }
-            });
-            return Array.from(map.values());
-        };
-
-        // 3. Merge recipes and prune deleted ones
-        const mergedRecipes = mergeItems(local.recipes, server.recipes)
-            .filter(r => !combinedDeletedRecipes.has(r.id));
-
-        // 4. Merge grocery list items and prune deleted ones
-        const mergedGroceryItems = mergeItems(local.groceryList, server.groceryList)
-            .filter(i => !combinedDeletedGrocery.has(i.id));
-
-        // 5. Sort grocery list by position
-        const finalGrocery = mergedGroceryItems.sort((a, b) => (a.position || 0) - (b.position || 0));
-
-        return {
-            recipes: mergedRecipes,
-            groceryList: finalGrocery,
-            deletedRecipeIds: Array.from(combinedDeletedRecipes),
-            deletedGroceryIds: Array.from(combinedDeletedGrocery)
-        };
-    };
-
-    const syncData = async () => {
-        if (syncInProgressRef.current) return;
-        syncInProgressRef.current = true;
-        setSyncInProgressUI(true);
-        try {
-            const online = await apiSync.checkHealth();
-            setIsOnline(online);
-            if (online) {
-                let inFlightLocalData = getFullLocalData();
-                const normalizedRecipes = await Promise.all(inFlightLocalData.recipes.map(r => normalizeRecipeImage(r)));
-                const hasChanged = normalizedRecipes.some((r, i) => r.imageUrl !== inFlightLocalData.recipes[i]?.imageUrl);
-                if (hasChanged) {
-                    inFlightLocalData = { ...inFlightLocalData, recipes: normalizedRecipes };
-                    setFullLocalData(inFlightLocalData);
-                }
-
-                const serverResponse = await apiSync.saveData(inFlightLocalData, lastSyncTimeRef.current);
-                if (serverResponse) {
-                    for (const r of serverResponse.recipes) {
-                        if (r.imageBase64) {
-                            try { await imageStore.saveImage(r.imageUrl, r.imageBase64); } catch (e) {}
-                            delete r.imageBase64;
-                        }
-                    }
-                    const mergedData = mergeData(getFullLocalData(), serverResponse);
-                    setFullLocalData(mergedData);
-                    lastSyncTimeRef.current = new Date();
-
-                    window.dispatchEvent(new CustomEvent('recipe_images_updated'));
-                }
-            } else { setFullLocalData(getFullLocalData()); }
-        } catch (e) { setIsOnline(false); } finally {
-            syncInProgressRef.current = false;
-            setSyncInProgressUI(false);
-        }
-    };
-
+    // Connect to Firestore real-time listeners
     useEffect(() => {
-        const init = async () => { setFullLocalData(getFullLocalData()); await syncData(); };
-        init();
-        const intervalId = window.setInterval(syncData, 15000);
-        window.addEventListener('online', syncData);
-        return () => { clearInterval(intervalId); window.removeEventListener('online', syncData); };
+        setSyncInProgressUI(true);
+
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+
+        const unsubRecipes = firestoreSync.subscribeRecipes(
+            (fetchedRecipes) => {
+                setRecipes(fetchedRecipes);
+                setSyncInProgressUI(false);
+                setIsOnline(true);
+            },
+            (err) => {
+                console.error("Firestore recipes error:", err);
+                setSyncInProgressUI(false);
+                setIsOnline(false);
+            }
+        );
+
+        const unsubGrocery = firestoreSync.subscribeGrocery(
+            (fetchedGrocery) => {
+                setGroceryList(fetchedGrocery);
+            },
+            (err) => {
+                console.error("Firestore grocery error:", err);
+            }
+        );
+
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+            unsubRecipes();
+            unsubGrocery();
+        };
     }, []);
 
     const playAlarm = () => {
@@ -248,138 +155,136 @@ const App: React.FC = () => {
     
     const addRecipe = async (recipe: Recipe) => {
         const normalizedRecipe = await normalizeRecipeImage(recipe);
-        setRecipes(prev => {
-            const updated = [normalizedRecipe, ...prev.filter(r => r.id !== normalizedRecipe.id)];
-            localStorage.setItem('family_recipes', JSON.stringify(updated));
-            return updated;
-        });
         setCurrentScreen('recipes');
-        setTimeout(() => syncData(), 50);
+        try {
+            await firestoreSync.saveRecipe(normalizedRecipe);
+        } catch (e) {
+            console.error("Error saving recipe:", e);
+        }
     };
 
     const updateRecipe = async (updatedRecipe: Recipe) => {
         let finalRecipe = await normalizeRecipeImage(updatedRecipe);
         finalRecipe = { ...finalRecipe, updatedAt: new Date().toISOString() };
-        setRecipes(prev => {
-            const updated = prev.map(r => r.id === finalRecipe.id ? finalRecipe : r);
-            localStorage.setItem('family_recipes', JSON.stringify(updated));
-            return updated;
-        });
-        setSelectedRecipe(prev => prev?.id === finalRecipe.id ? finalRecipe : prev);
-        setTimeout(() => syncData(), 50);
+        setSelectedRecipe(finalRecipe);
+        try {
+            await firestoreSync.saveRecipe(finalRecipe);
+        } catch (e) {
+            console.error("Error updating recipe:", e);
+        }
     };
 
-    const deleteRecipe = (id: string) => {
-        setRecipes(prev => {
-            const updated = prev.filter(r => r.id !== id);
-            localStorage.setItem('family_recipes', JSON.stringify(updated));
-            return updated;
-        });
-        setDeletedRecipeIds(prev => {
-            const updated = [...new Set([...prev, id])].slice(-1000);
-            localStorage.setItem('family_deleted_recipes', JSON.stringify(updated));
-            return updated;
-        });
+    const deleteRecipe = async (id: string) => {
+        const recipe = recipes.find(r => r.id === id);
         if (selectedRecipe?.id === id) { setCurrentScreen('recipes'); setSelectedRecipe(null); }
         setRecipeToDelete(null);
+        try {
+            await firestoreSync.deleteRecipe(id, recipe?.imageUrl);
+        } catch (e) {
+            console.error("Error deleting recipe:", e);
+        }
     };
     
-    const toggleGroceryItemFromIngredient = (ingredient: Ingredient) => {
+    const toggleGroceryItemFromIngredient = async (ingredient: Ingredient) => {
         const str = `${ingredient.quantity ? `${numberToFraction(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
         const existing = groceryList.find(item => item.name.toLowerCase() === str.toLowerCase() || (ingredient.name && item.name.toLowerCase().includes(ingredient.name.toLowerCase())));
-        if (existing) deleteGroceryItem(existing.id); else addCustomGroceryItem(str);
+        if (existing) await deleteGroceryItem(existing.id); else await addCustomGroceryItem(str);
     };
         
-    const addCustomGroceryItem = (name: string) => {
-        setGroceryList(prev => {
-            const minPos = prev.length > 0 ? Math.min(...prev.map(i => i.position || 0)) : 0;
-            const generateId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
-                ? crypto.randomUUID() 
-                : (Date.now().toString(36) + Math.random().toString(36).substring(2, 9));
-            const newItem: GroceryListItem = { 
-                id: generateId(), 
-                name, 
-                completed: false, 
-                updatedAt: new Date().toISOString(),
-                position: minPos - 1000 
-            };
-            const updated = [newItem, ...prev];
-            localStorage.setItem('family_grocery', JSON.stringify(updated));
-            return updated;
-        });
-        setTimeout(() => syncData(), 50);
+    const addCustomGroceryItem = async (name: string) => {
+        const minPos = groceryList.length > 0 ? Math.min(...groceryList.map(i => i.position || 0)) : 0;
+        const generateId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
+            ? crypto.randomUUID() 
+            : (Date.now().toString(36) + Math.random().toString(36).substring(2, 9));
+        const newItem: GroceryListItem = { 
+            id: generateId(), 
+            name, 
+            completed: false, 
+            updatedAt: new Date().toISOString(),
+            position: minPos - 1000 
+        };
+        try {
+            await firestoreSync.saveGroceryItem(newItem);
+        } catch (e) {
+            console.error("Error adding grocery item:", e);
+        }
     };
 
-    const toggleGroceryItem = (id: string) => {
-        setGroceryList(prev => {
-            const updated = prev.map(i => i.id === id ? { ...i, completed: !i.completed, updatedAt: new Date().toISOString() } : i);
-            localStorage.setItem('family_grocery', JSON.stringify(updated));
-            return updated;
-        });
-        setTimeout(() => syncData(), 50);
-    };
-
-    const updateGroceryItem = (id: string, name: string) => {
-        setGroceryList(prev => {
-            const updated = prev.map(i => i.id === id ? { ...i, name, updatedAt: new Date().toISOString() } : i);
-            localStorage.setItem('family_grocery', JSON.stringify(updated));
-            return updated;
-        });
-        setTimeout(() => syncData(), 50);
-    };
-
-    const deleteGroceryItem = (id: string) => {
-        setGroceryList(prev => {
-            const updated = prev.filter(i => i.id !== id);
-            localStorage.setItem('family_grocery', JSON.stringify(updated));
-            return updated;
-        });
-        setDeletedGroceryIds(prev => {
-            const updated = [...new Set([...prev, id])].slice(-1000);
-            localStorage.setItem('family_deleted_grocery', JSON.stringify(updated));
-            return updated;
-        });
-        setTimeout(() => syncData(), 50);
-    };
-
-    const moveGroceryItem = (oldIndex: number, newIndex: number) => {
-        if (oldIndex === newIndex) return;
-        setGroceryList(prev => {
-            const list = [...prev];
-            const item = { ...list[oldIndex] };
-            list.splice(oldIndex, 1);
-            list.splice(newIndex, 0, item);
-
-            const prevItem = list[newIndex - 1];
-            const nextItem = list[newIndex + 1];
-            
-            let newPos = 0;
-            if (prevItem && nextItem) {
-                newPos = ((prevItem.position || 0) + (nextItem.position || 0)) / 2;
-            } else if (prevItem) {
-                newPos = (prevItem.position || 0) + 1000;
-            } else if (nextItem) {
-                newPos = (nextItem.position || 0) - 1000;
+    const toggleGroceryItem = async (id: string) => {
+        const item = groceryList.find(i => i.id === id);
+        if (item) {
+            try {
+                await firestoreSync.saveGroceryItem({
+                    ...item,
+                    completed: !item.completed,
+                    updatedAt: new Date().toISOString()
+                });
+            } catch (e) {
+                console.error("Error toggling grocery item:", e);
             }
+        }
+    };
 
-            item.position = newPos;
-            item.updatedAt = new Date().toISOString();
-            list[newIndex] = item;
+    const updateGroceryItem = async (id: string, name: string) => {
+        const item = groceryList.find(i => i.id === id);
+        if (item) {
+            try {
+                await firestoreSync.saveGroceryItem({
+                    ...item,
+                    name,
+                    updatedAt: new Date().toISOString()
+                });
+            } catch (e) {
+                console.error("Error updating grocery item:", e);
+            }
+        }
+    };
 
-            localStorage.setItem('family_grocery', JSON.stringify(list));
-            return list;
-        });
+    const deleteGroceryItem = async (id: string) => {
+        try {
+            await firestoreSync.deleteGroceryItem(id);
+        } catch (e) {
+            console.error("Error deleting grocery item:", e);
+        }
+    };
+
+    const moveGroceryItem = async (oldIndex: number, newIndex: number) => {
+        if (oldIndex === newIndex) return;
+        const list = [...groceryList];
+        const item = { ...list[oldIndex] };
+        list.splice(oldIndex, 1);
+        list.splice(newIndex, 0, item);
+
+        const prevItem = list[newIndex - 1];
+        const nextItem = list[newIndex + 1];
+        
+        let newPos = 0;
+        if (prevItem && nextItem) {
+            newPos = ((prevItem.position || 0) + (nextItem.position || 0)) / 2;
+        } else if (prevItem) {
+            newPos = (prevItem.position || 0) + 1000;
+        } else if (nextItem) {
+            newPos = (nextItem.position || 0) - 1000;
+        }
+
+        item.position = newPos;
+        item.updatedAt = new Date().toISOString();
+        try {
+            await firestoreSync.saveGroceryItem(item);
+        } catch (e) {
+            console.error("Error moving grocery item:", e);
+        }
     };
 
     const renderScreen = () => {
         switch (currentScreen) {
-            case 'welcome': return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
+            case 'welcome': return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={groceryList} />;
             case 'recipes': return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
             case 'add': return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} allCategories={allCategories} />;
             case 'list': return <GroceryListScreen items={groceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onMoveItem={moveGroceryItem} onBack={() => setActiveScreen('recipes')} />;
             case 'timer': return <TimerScreen onBack={() => setActiveScreen('recipes')} timeLeft={timeLeft} isPaused={timerIsPaused} isActive={timerEndTime !== null} onStart={startTimer} onPauseResume={pauseResumeTimer} onReset={resetTimer} />;
             case 'recipe-detail': return selectedRecipe ? <RecipeDetailScreen recipe={selectedRecipe} onBack={() => setActiveScreen('recipes')} onDeleteRequest={setRecipeToDelete} onUpdateRecipe={updateRecipe} groceryList={groceryList} onToggleGroceryItem={toggleGroceryItemFromIngredient} recipes={recipes} /> : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
-            default: return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} />;
+            default: return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={groceryList} />;
         }
     };
 
@@ -387,11 +292,17 @@ const App: React.FC = () => {
         <div className="max-w-lg mx-auto font-sans bg-[#F9F9F5] min-h-screen">
             <div className={`fixed z-50 ${currentScreen === 'recipe-detail' ? 'top-5 left-16' : 'top-5 right-5'}`}>
                 {syncInProgressUI ? (
-                    <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md"><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div></div>
+                    <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Synchronisation Firestore...">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
+                    </div>
                 ) : isOnline ? (
-                    <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md"><div className="w-2.5 h-2.5 bg-green-500 rounded-full"></div></div>
+                    <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Connecté à Firebase Firestore en temps réel">
+                        <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></div>
+                    </div>
                 ) : (
-                    <button onClick={syncData} className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md"><div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div></button>
+                    <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Mode hors-ligne (Firestore Caching)">
+                        <div className="w-2.5 h-2.5 bg-amber-500 rounded-full"></div>
+                    </div>
                 )}
             </div>
             <main>{renderScreen()}</main>
