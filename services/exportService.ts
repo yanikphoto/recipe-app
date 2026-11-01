@@ -1,7 +1,107 @@
 
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle } from "docx";
-import { Recipe } from "../types";
+import { Recipe, GroceryListItem } from "../types";
 import { numberToFraction } from "./fractionUtils";
+import { imageStore } from "./imageStore";
+
+const blobToDataUrl = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+};
+
+const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
+
+export const exportBackupJsonWithShare = async (recipes: Recipe[], groceryList: GroceryListItem[] = []) => {
+    if (recipes.length === 0 && groceryList.length === 0) {
+        alert("Aucune recette ou donnée à sauvegarder.");
+        return;
+    }
+
+    // 1. Gather all recipes with their full image data so the backup is 100% self-contained
+    const recipesWithImages = await Promise.all(
+        recipes.map(async (recipe) => {
+            let imageBase64 = recipe.imageBase64;
+            if (!imageBase64 && recipe.imageUrl) {
+                if (recipe.imageUrl.startsWith('data:')) {
+                    imageBase64 = recipe.imageUrl;
+                } else if (!recipe.imageUrl.startsWith('http')) {
+                    try {
+                        const blob = await imageStore.getImage(recipe.imageUrl);
+                        if (blob instanceof Blob) {
+                            imageBase64 = await blobToDataUrl(blob);
+                        } else if (typeof blob === 'string') {
+                            imageBase64 = blob;
+                        } else {
+                            // Fallback to server if not found in local indexedDB
+                            try {
+                                const resp = await fetch(`${API_BASE_URL}/uploads/${recipe.imageUrl}.jpg`);
+                                if (resp.ok) {
+                                    const serverBlob = await resp.blob();
+                                    imageBase64 = await blobToDataUrl(serverBlob);
+                                }
+                            } catch (err) {
+                                console.warn(`Could not fetch remote image for ${recipe.title}`, err);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`Could not load image for recipe ${recipe.title}`, e);
+                    }
+                }
+            }
+            return {
+                ...recipe,
+                ...(imageBase64 ? { imageBase64 } : {})
+            };
+        })
+    );
+
+    const backupData = {
+        version: "1.0",
+        appName: "Nos Recettes",
+        exportDate: new Date().toISOString(),
+        recipeCount: recipesWithImages.length,
+        groceryCount: groceryList.length,
+        recipes: recipesWithImages,
+        groceryList,
+    };
+
+    const jsonString = JSON.stringify(backupData, null, 2);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `sauvegarde-recettes-${dateStr}.json`;
+
+    // 1. Always download the backup file directly to the device/computer
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+    // 2. Also open Web Share sheet if available (mobile/email)
+    if (navigator.canShare) {
+        try {
+            const file = new File([jsonString], fileName, { type: "application/json" });
+            if (navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    files: [file],
+                    title: 'Sauvegarde de mes Recettes',
+                    text: `Voici la sauvegarde complète de mes recettes (${recipesWithImages.length} recettes) pour Firestore.`,
+                });
+            }
+        } catch (error: any) {
+            if (error.name !== 'AbortError') {
+                console.log("Share skipped or not supported:", error);
+            }
+        }
+    }
+};
 
 export const exportRecipesToWord = async (recipes: Recipe[]) => {
     if (recipes.length === 0) {
