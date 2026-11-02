@@ -3,6 +3,7 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Bord
 import { Recipe, GroceryListItem } from "../types";
 import { numberToFraction } from "./fractionUtils";
 import { imageStore } from "./imageStore";
+import { firestoreSync } from "./firestoreSync";
 
 const blobToDataUrl = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -12,8 +13,6 @@ const blobToDataUrl = (blob: Blob): Promise<string> => {
         reader.readAsDataURL(blob);
     });
 };
-
-const API_BASE_URL = 'https://deafening-gaye-yanik-dfb7fb04.koyeb.app';
 
 export const exportBackupJsonWithShare = async (recipes: Recipe[], groceryList: GroceryListItem[] = []) => {
     if (recipes.length === 0 && groceryList.length === 0) {
@@ -30,22 +29,16 @@ export const exportBackupJsonWithShare = async (recipes: Recipe[], groceryList: 
                     imageBase64 = recipe.imageUrl;
                 } else if (!recipe.imageUrl.startsWith('http')) {
                     try {
-                        const blob = await imageStore.getImage(recipe.imageUrl);
+                        let blob = await imageStore.getImage(recipe.imageUrl);
+                        if (!blob) {
+                            // Fetch directly from Firestore cloud if not in local cache
+                            blob = (await firestoreSync.getImage(recipe.imageUrl)) || undefined;
+                        }
+
                         if (blob instanceof Blob) {
                             imageBase64 = await blobToDataUrl(blob);
                         } else if (typeof blob === 'string') {
                             imageBase64 = blob;
-                        } else {
-                            // Fallback to server if not found in local indexedDB
-                            try {
-                                const resp = await fetch(`${API_BASE_URL}/uploads/${recipe.imageUrl}.jpg`);
-                                if (resp.ok) {
-                                    const serverBlob = await resp.blob();
-                                    imageBase64 = await blobToDataUrl(serverBlob);
-                                }
-                            } catch (err) {
-                                console.warn(`Could not fetch remote image for ${recipe.title}`, err);
-                            }
                         }
                     } catch (e) {
                         console.warn(`Could not load image for recipe ${recipe.title}`, e);
