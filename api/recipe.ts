@@ -56,7 +56,7 @@ const recipeSchema = {
 
 async function generateWithFallback(contents: any, schema: any) {
     const ai = getAiClient();
-    const candidateModels = ['gemini-2.5-flash', 'gemini-3.7-flash', 'gemini-flash-latest'];
+    const candidateModels = ['gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-flash-latest'];
     let lastError: any = null;
 
     for (const model of candidateModels) {
@@ -99,7 +99,7 @@ async function generateImageFromPromptInternal(prompt: string) {
     const ai = getAiClient();
     
     // First try Gemini image generation models
-    const geminiImageModels = ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image', 'gemini-2.5-flash-image', 'gemini-3-pro-image'];
+    const geminiImageModels = ['gemini-3.1-flash-lite-image', 'gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3-pro-image'];
     for (const model of geminiImageModels) {
         try {
             const response = await ai.models.generateContent({
