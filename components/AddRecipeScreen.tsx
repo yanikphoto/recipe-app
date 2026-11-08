@@ -31,29 +31,51 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cameraInputRef = useRef<HTMLInputElement>(null);
 
-    const processAndAddRecipe = async (parsedData: Partial<Recipe> & { imagePrompt: string }) => {
-        if (!parsedData.title || !parsedData.ingredients?.length || !parsedData.instructions?.length || !parsedData.imagePrompt) {
+    const generateId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
+        ? crypto.randomUUID() 
+        : (Date.now().toString(36) + Math.random().toString(36).substring(2, 9));
+
+    const processAndAddRecipe = async (parsedData: Partial<Recipe> & { imagePrompt?: string }) => {
+        if (!parsedData.title || !parsedData.ingredients?.length || !parsedData.instructions?.length) {
             throw new Error("Impossible d'extraire les détails complets de la recette. Veuillez essayer une autre source.");
         }
 
-        setLoadingMessage("Génération de l'image...");
-        const imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
+        let imageBase64: string | undefined = undefined;
+        if (parsedData.imagePrompt) {
+            try {
+                setLoadingMessage("Génération de l'image...");
+                imageBase64 = await generateImageFromPrompt(parsedData.imagePrompt);
+            } catch (imgError) {
+                console.warn("Image generation failed, continuing with recipe details:", imgError);
+            }
+        }
         
-        let imageId: string | undefined = undefined;
+        let imageId = '';
         if (imageBase64) {
-            imageId = crypto.randomUUID();
-            await imageStore.saveImage(imageId, imageBase64);
+            imageId = generateId();
+            try {
+                await imageStore.saveImage(imageId, imageBase64);
+            } catch (err) {
+                console.warn("Failed saving image to local store:", err);
+            }
         }
 
         const newRecipe: Recipe = {
-            id: crypto.randomUUID(),
+            id: generateId(),
             imageUrl: imageId,
+            imageBase64: imageBase64 || undefined,
             title: parsedData.title,
             categories: parsedData.categories || [],
-            servings: parsedData.servings || 0,
-            servingsUnit: parsedData.servings ? parsedData.servingsUnit : undefined,
-            ingredients: parsedData.ingredients.map(ing => ({ ...ing, id: crypto.randomUUID() })),
-            instructions: parsedData.instructions,
+            servings: typeof parsedData.servings === 'number' ? parsedData.servings : 0,
+            servingsUnit: parsedData.servingsUnit || '',
+            ingredients: (parsedData.ingredients || []).map(ing => ({
+                id: generateId(),
+                name: ing.name || '',
+                quantity: typeof ing.quantity === 'number' ? ing.quantity : (ing.quantity ? Number(ing.quantity) || 0 : 0),
+                unit: ing.unit || '',
+                isSectionHeader: Boolean(ing.isSectionHeader),
+            })),
+            instructions: parsedData.instructions || [],
             updatedAt: new Date().toISOString(),
         };
 
