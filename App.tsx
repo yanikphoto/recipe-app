@@ -155,11 +155,14 @@ const App: React.FC = () => {
     
     const addRecipe = async (recipe: Recipe) => {
         const normalizedRecipe = await normalizeRecipeImage(recipe);
+        // Optimistic UI update so the user immediately sees the recipe
+        setRecipes(prev => [normalizedRecipe, ...prev.filter(r => r.id !== normalizedRecipe.id)]);
         setCurrentScreen('recipes');
         try {
             await firestoreSync.saveRecipe(normalizedRecipe);
-        } catch (e) {
-            console.error("Error saving recipe:", e);
+        } catch (e: any) {
+            console.error("Error saving recipe to Firestore:", e);
+            alert(`Erreur lors de l'enregistrement de la recette dans Firestore: ${e?.message || e}`);
         }
     };
 
@@ -167,10 +170,11 @@ const App: React.FC = () => {
         let finalRecipe = await normalizeRecipeImage(updatedRecipe);
         finalRecipe = { ...finalRecipe, updatedAt: new Date().toISOString() };
         setSelectedRecipe(finalRecipe);
+        setRecipes(prev => prev.map(r => r.id === finalRecipe.id ? finalRecipe : r));
         try {
             await firestoreSync.saveRecipe(finalRecipe);
-        } catch (e) {
-            console.error("Error updating recipe:", e);
+        } catch (e: any) {
+            console.error("Error updating recipe in Firestore:", e);
         }
     };
 
