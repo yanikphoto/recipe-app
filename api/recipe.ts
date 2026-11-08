@@ -5,9 +5,12 @@ let aiInstance: GoogleGenAI | null = null;
 
 function getAiClient() {
     if (!aiInstance) {
-        const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+        const apiKey = process.env.GEMINI_API_KEY || 
+                       process.env.API_KEY || 
+                       process.env.GOOGLE_API_KEY || 
+                       process.env.GOOGLE_GENAI_API_KEY;
         if (!apiKey) {
-            throw new Error("Missing API key (GEMINI_API_KEY or API_KEY)");
+            throw new Error("Missing API key (GEMINI_API_KEY, API_KEY, GOOGLE_API_KEY, or GOOGLE_GENAI_API_KEY)");
         }
         aiInstance = new GoogleGenAI({
             apiKey: apiKey,
@@ -56,7 +59,12 @@ const recipeSchema = {
 
 async function generateWithFallback(contents: any, schema: any) {
     const ai = getAiClient();
-    const candidateModels = ['gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-flash-latest'];
+    const candidateModels = [
+        'gemini-3.5-flash-lite',
+        'gemini-3.7-flash',
+        'gemini-flash-latest',
+        'gemini-2.5-flash'
+    ];
     let lastError: any = null;
 
     for (const model of candidateModels) {
@@ -98,8 +106,8 @@ async function parseRecipeFromUrlInternal(url: string, allCategories: string[]) 
 async function generateImageFromPromptInternal(prompt: string) {
     const ai = getAiClient();
     
-    // First try Gemini image generation models
-    const geminiImageModels = ['gemini-3.1-flash-lite-image', 'gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3-pro-image'];
+    // 1. Try recommended Gemini multimodal image generation models
+    const geminiImageModels = ['gemini-3.1-flash-lite-image', 'gemini-3.1-flash-image'];
     for (const model of geminiImageModels) {
         try {
             const response = await ai.models.generateContent({
@@ -118,8 +126,8 @@ async function generateImageFromPromptInternal(prompt: string) {
         }
     }
 
-    // Then try Imagen models
-    const imageModels = ['imagen-4.0-generate-001', 'imagen-3.0-generate-002'];
+    // 2. Fallback to Imagen models
+    const imageModels = ['imagen-3.0-generate-002', 'imagen-3.0-generate-001'];
     for (const model of imageModels) {
         try {
             const response = await ai.models.generateImages({
@@ -138,7 +146,10 @@ async function generateImageFromPromptInternal(prompt: string) {
 }
 
 export default async function handler(req: any, res: any) {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || 
+                   process.env.API_KEY || 
+                   process.env.GOOGLE_API_KEY || 
+                   process.env.GOOGLE_GENAI_API_KEY;
     if (!apiKey) return res.status(500).json({ error: "Missing API key" });
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
     const { action, payload } = req.body;
