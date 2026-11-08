@@ -63,16 +63,52 @@ export const firestoreSync = {
   async saveRecipe(recipe: Recipe): Promise<void> {
     const { imageBase64, ...recipeToSave } = recipe;
 
-    // If an image is provided, store it in recipe_images and local imageStore
-    if (imageBase64 && recipe.imageUrl) {
-      await this.saveImage(recipe.imageUrl, imageBase64);
+    // Check if we have an image to save (either passed in recipe or cached locally in imageStore)
+    let imageToUpload = imageBase64;
+    if (!imageToUpload && recipe.imageUrl) {
+      try {
+        const localBlob = await imageStore.getImage(recipe.imageUrl);
+        if (localBlob) {
+          imageToUpload = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(localBlob);
+          });
+        }
+      } catch (err) {
+        console.warn("Could not retrieve local image from imageStore:", err);
+      }
     }
 
-    const docRef = doc(db, "recipes", recipe.id);
-    await setDoc(docRef, {
+    // If an image is provided or found, store it in recipe_images and local imageStore
+    if (imageToUpload && recipe.imageUrl) {
+      try {
+        await this.saveImage(recipe.imageUrl, imageToUpload);
+      } catch (imgErr) {
+        console.warn("Failed saving image to Firestore (will still save recipe):", imgErr);
+      }
+    }
+
+    // Clean and sanitize recipeToSave to remove any undefined properties
+    const sanitizedRecipe = JSON.parse(JSON.stringify({
       ...recipeToSave,
+      imageUrl: recipeToSave.imageUrl || '',
+      servings: typeof recipeToSave.servings === 'number' ? recipeToSave.servings : 0,
+      servingsUnit: recipeToSave.servingsUnit || '',
+      categories: recipeToSave.categories || [],
+      instructions: recipeToSave.instructions || [],
+      ingredients: (recipeToSave.ingredients || []).map(ing => ({
+        id: ing.id || '',
+        name: ing.name || '',
+        quantity: typeof ing.quantity === 'number' ? ing.quantity : 0,
+        unit: ing.unit || '',
+        isSectionHeader: Boolean(ing.isSectionHeader),
+      })),
       updatedAt: recipe.updatedAt || new Date().toISOString()
-    }, { merge: true });
+    }));
+
+    const docRef = doc(db, "recipes", recipe.id);
+    await setDoc(docRef, sanitizedRecipe, { merge: true });
   },
 
   // Delete a recipe and its image
@@ -121,7 +157,7 @@ export const firestoreSync = {
     }
 
     // Clean base64 string
-    const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
 
     if (cleanBase64.length <= MAX_CHUNK_SIZE) {
       // Single doc is sufficient

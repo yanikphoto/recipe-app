@@ -26,6 +26,7 @@ signInAnonymously(auth).catch((err) => {
 
 // Initialize Firestore with robust multi-tab offline caching
 export const db = initializeFirestore(app, {
+  ignoreUndefinedProperties: true,
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()
   })
