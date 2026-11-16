@@ -1,5 +1,5 @@
 // sw.js - Firestore Version
-const CACHE_NAME = 'nos-recettes-firestore-v4';
+const CACHE_NAME = 'nos-recettes-firestore-v5';
 
 // Install event: force immediate takeover
 self.addEventListener('install', (event) => {
