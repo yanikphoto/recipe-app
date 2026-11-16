@@ -13,6 +13,7 @@ type RecipeDetailScreenProps = {
   onUpdateRecipe: (recipe: Recipe) => void;
   groceryList: GroceryListItem[];
   onToggleGroceryItem: (ingredient: Ingredient) => void;
+  onToggleAllGroceryItems?: (ingredients: Ingredient[], shouldAdd: boolean) => void;
   recipes: Recipe[];
 };
 
@@ -41,7 +42,7 @@ const getMetricDisplay = (ing: Ingredient): string | null => {
     return null;
 }
 
-const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem, recipes }) => {
+const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem, onToggleAllGroceryItems, recipes }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editableRecipe, setEditableRecipe] = useState<Recipe>(recipe);
     const [editingQuantities, setEditingQuantities] = useState<Record<string, string>>({});
@@ -99,15 +100,24 @@ const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack,
     }, [recipe.ingredients, groceryList, multiplier]);
 
     const handleToggleAllToList = () => {
-        const areAllOnList = recipe.ingredients.filter(i => !i.isSectionHeader).every(isIngredientInGroceryList);
-        recipe.ingredients.forEach(ing => {
-            if (ing.isSectionHeader) return;
-            const adjustedIngredient = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
-            const isOnList = isIngredientInGroceryList(adjustedIngredient);
-            if ((areAllOnList && isOnList) || (!areAllOnList && !isOnList)) {
-                 onToggleGroceryItem(adjustedIngredient);
-            }
-        });
+        const nonHeaderIngredients = recipe.ingredients.filter(i => !i.isSectionHeader);
+        const areAllOnList = nonHeaderIngredients.every(isIngredientInGroceryList);
+        if (onToggleAllGroceryItems) {
+            const adjusted = nonHeaderIngredients.map(ing => ({
+                ...ing,
+                quantity: ing.quantity ? ing.quantity * multiplier : undefined
+            }));
+            onToggleAllGroceryItems(adjusted, !areAllOnList);
+        } else {
+            recipe.ingredients.forEach(ing => {
+                if (ing.isSectionHeader) return;
+                const adjustedIngredient = { ...ing, quantity: ing.quantity ? ing.quantity * multiplier : undefined };
+                const isOnList = isIngredientInGroceryList(adjustedIngredient);
+                if ((areAllOnList && isOnList) || (!areAllOnList && !isOnList)) {
+                     onToggleGroceryItem(adjustedIngredient);
+                }
+            });
+        }
     };
     
     const allIngredientsCrossed = useMemo(() => {
