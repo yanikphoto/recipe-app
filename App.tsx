@@ -48,9 +48,20 @@ const App: React.FC = () => {
         });
     }, [recipes]);
 
+    const sortedGroceryList = useMemo(() => {
+        return [...groceryList].sort((a, b) => {
+            const posA = typeof a.position === 'number' ? a.position : 0;
+            const posB = typeof b.position === 'number' ? b.position : 0;
+            if (posA !== posB) return posA - posB;
+            const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+            const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+            return dateB - dateA;
+        });
+    }, [groceryList]);
+
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
-    // Connect to Firestore real-time listeners
+    // Connect to Firestore real-time listeners & handle automatic wake-up / focus re-sync
     useEffect(() => {
         setSyncInProgressUI(true);
 
@@ -58,6 +69,25 @@ const App: React.FC = () => {
         const handleOffline = () => setIsOnline(false);
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
+
+        // Auto re-sync when tab or PWA wakes up from background / unlocks screen
+        const handleVisibilityOrFocus = async () => {
+            if (document.visibilityState === 'visible') {
+                try {
+                    const [serverGrocery, serverRecipes] = await Promise.all([
+                        firestoreSync.fetchGroceryFromServer(),
+                        firestoreSync.fetchRecipesFromServer()
+                    ]);
+                    if (serverGrocery.length > 0) setGroceryList(serverGrocery);
+                    if (serverRecipes.length > 0) setRecipes(serverRecipes);
+                    setIsOnline(true);
+                } catch (e) {
+                    console.warn("Visibility re-sync notice:", e);
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+        window.addEventListener('focus', handleVisibilityOrFocus);
 
         const unsubRecipes = firestoreSync.subscribeRecipes(
             (fetchedRecipes) => {
@@ -75,6 +105,7 @@ const App: React.FC = () => {
         const unsubGrocery = firestoreSync.subscribeGrocery(
             (fetchedGrocery) => {
                 setGroceryList(fetchedGrocery);
+                setIsOnline(true);
             },
             (err) => {
                 console.error("Firestore grocery error:", err);
@@ -84,6 +115,8 @@ const App: React.FC = () => {
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+            window.removeEventListener('focus', handleVisibilityOrFocus);
             unsubRecipes();
             unsubGrocery();
         };
@@ -182,6 +215,8 @@ const App: React.FC = () => {
         const recipe = recipes.find(r => r.id === id);
         if (selectedRecipe?.id === id) { setCurrentScreen('recipes'); setSelectedRecipe(null); }
         setRecipeToDelete(null);
+        // Optimistic UI update so the recipe immediately disappears
+        setRecipes(prev => prev.filter(r => r.id !== id));
         try {
             await firestoreSync.deleteRecipe(id, recipe?.imageUrl);
         } catch (e) {
@@ -192,23 +227,86 @@ const App: React.FC = () => {
     const toggleGroceryItemFromIngredient = async (ingredient: Ingredient) => {
         const str = `${ingredient.quantity ? `${numberToFraction(ingredient.quantity)} ` : ''}${ingredient.unit || ''} ${ingredient.name}`.trim();
         const existing = groceryList.find(item => item.name.toLowerCase() === str.toLowerCase() || (ingredient.name && item.name.toLowerCase().includes(ingredient.name.toLowerCase())));
-        if (existing) await deleteGroceryItem(existing.id); else await addCustomGroceryItem(str);
+        if (existing) {
+            await deleteGroceryItem(existing.id);
+        } else {
+            await addCustomGroceryItem(str);
+        }
+    };
+
+    const toggleAllGroceryItems = async (ingredients: Ingredient[], shouldAdd: boolean) => {
+        if (!shouldAdd) {
+            const itemsToDelete = groceryList.filter(item => 
+                ingredients.some(ing => item.name.toLowerCase().includes(ing.name.toLowerCase()))
+            );
+            const deleteIds = new Set(itemsToDelete.map(i => i.id));
+            setGroceryList(prev => prev.filter(i => !deleteIds.has(i.id)));
+            for (const item of itemsToDelete) {
+                try {
+                    await firestoreSync.deleteGroceryItem(item.id);
+                } catch (e) {
+                    console.error("Error deleting grocery item in batch:", e);
+                }
+            }
+        } else {
+            const generateId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
+                ? crypto.randomUUID() 
+                : (Date.now().toString(36) + Math.random().toString(36).substring(2, 9));
+            
+            const currentMinPos = groceryList.length > 0 
+                ? Math.min(...groceryList.map(i => typeof i.position === 'number' ? i.position : 0)) 
+                : 0;
+            const newItems: GroceryListItem[] = [];
+            
+            ingredients.forEach((ing, index) => {
+                const str = `${ing.quantity ? `${numberToFraction(ing.quantity)} ` : ''}${ing.unit || ''} ${ing.name}`.trim();
+                const alreadyExists = groceryList.some(item => item.name.toLowerCase().includes(ing.name.toLowerCase()));
+                if (!alreadyExists) {
+                    newItems.push({
+                        id: generateId(),
+                        name: str,
+                        completed: false,
+                        updatedAt: new Date().toISOString(),
+                        position: currentMinPos - (index + 1) * 1000
+                    });
+                }
+            });
+
+            if (newItems.length > 0) {
+                setGroceryList(prev => [...newItems, ...prev]);
+                for (const item of newItems) {
+                    try {
+                        await firestoreSync.saveGroceryItem(item);
+                    } catch (e) {
+                        console.error("Error adding grocery item in batch:", e);
+                    }
+                }
+            }
+        }
     };
         
     const addCustomGroceryItem = async (name: string) => {
-        const minPos = groceryList.length > 0 ? Math.min(...groceryList.map(i => i.position || 0)) : 0;
         const generateId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
             ? crypto.randomUUID() 
             : (Date.now().toString(36) + Math.random().toString(36).substring(2, 9));
-        const newItem: GroceryListItem = { 
-            id: generateId(), 
-            name, 
-            completed: false, 
-            updatedAt: new Date().toISOString(),
-            position: minPos - 1000 
-        };
+        
+        let newItem: GroceryListItem;
+        setGroceryList(prev => {
+            const minPos = prev.length > 0 
+                ? Math.min(...prev.map(i => typeof i.position === 'number' ? i.position : 0)) 
+                : 0;
+            newItem = { 
+                id: generateId(), 
+                name, 
+                completed: false, 
+                updatedAt: new Date().toISOString(),
+                position: minPos - 1000 
+            };
+            return [newItem, ...prev.filter(i => i.id !== newItem.id)];
+        });
+
         try {
-            await firestoreSync.saveGroceryItem(newItem);
+            await firestoreSync.saveGroceryItem(newItem!);
         } catch (e) {
             console.error("Error adding grocery item:", e);
         }
@@ -217,12 +315,15 @@ const App: React.FC = () => {
     const toggleGroceryItem = async (id: string) => {
         const item = groceryList.find(i => i.id === id);
         if (item) {
+            const updatedItem: GroceryListItem = {
+                ...item,
+                completed: !item.completed,
+                updatedAt: new Date().toISOString()
+            };
+            // Optimistic UI update
+            setGroceryList(prev => prev.map(i => i.id === id ? updatedItem : i));
             try {
-                await firestoreSync.saveGroceryItem({
-                    ...item,
-                    completed: !item.completed,
-                    updatedAt: new Date().toISOString()
-                });
+                await firestoreSync.saveGroceryItem(updatedItem);
             } catch (e) {
                 console.error("Error toggling grocery item:", e);
             }
@@ -232,12 +333,15 @@ const App: React.FC = () => {
     const updateGroceryItem = async (id: string, name: string) => {
         const item = groceryList.find(i => i.id === id);
         if (item) {
+            const updatedItem: GroceryListItem = {
+                ...item,
+                name,
+                updatedAt: new Date().toISOString()
+            };
+            // Optimistic UI update
+            setGroceryList(prev => prev.map(i => i.id === id ? updatedItem : i));
             try {
-                await firestoreSync.saveGroceryItem({
-                    ...item,
-                    name,
-                    updatedAt: new Date().toISOString()
-                });
+                await firestoreSync.saveGroceryItem(updatedItem);
             } catch (e) {
                 console.error("Error updating grocery item:", e);
             }
@@ -245,6 +349,8 @@ const App: React.FC = () => {
     };
 
     const deleteGroceryItem = async (id: string) => {
+        // Optimistic UI update
+        setGroceryList(prev => prev.filter(i => i.id !== id));
         try {
             await firestoreSync.deleteGroceryItem(id);
         } catch (e) {
@@ -254,7 +360,7 @@ const App: React.FC = () => {
 
     const moveGroceryItem = async (oldIndex: number, newIndex: number) => {
         if (oldIndex === newIndex) return;
-        const list = [...groceryList];
+        const list = [...sortedGroceryList];
         const item = { ...list[oldIndex] };
         list.splice(oldIndex, 1);
         list.splice(newIndex, 0, item);
@@ -273,6 +379,9 @@ const App: React.FC = () => {
 
         item.position = newPos;
         item.updatedAt = new Date().toISOString();
+        
+        // Optimistic UI update
+        setGroceryList(list.map(i => i.id === item.id ? item : i));
         try {
             await firestoreSync.saveGroceryItem(item);
         } catch (e) {
@@ -282,13 +391,13 @@ const App: React.FC = () => {
 
     const renderScreen = () => {
         switch (currentScreen) {
-            case 'welcome': return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={groceryList} />;
+            case 'welcome': return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={sortedGroceryList} />;
             case 'recipes': return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
             case 'add': return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} allCategories={allCategories} />;
-            case 'list': return <GroceryListScreen items={groceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onMoveItem={moveGroceryItem} onBack={() => setActiveScreen('recipes')} />;
+            case 'list': return <GroceryListScreen items={sortedGroceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onMoveItem={moveGroceryItem} onBack={() => setActiveScreen('recipes')} />;
             case 'timer': return <TimerScreen onBack={() => setActiveScreen('recipes')} timeLeft={timeLeft} isPaused={timerIsPaused} isActive={timerEndTime !== null} onStart={startTimer} onPauseResume={pauseResumeTimer} onReset={resetTimer} />;
-            case 'recipe-detail': return selectedRecipe ? <RecipeDetailScreen recipe={selectedRecipe} onBack={() => setActiveScreen('recipes')} onDeleteRequest={setRecipeToDelete} onUpdateRecipe={updateRecipe} groceryList={groceryList} onToggleGroceryItem={toggleGroceryItemFromIngredient} recipes={recipes} /> : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
-            default: return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={groceryList} />;
+            case 'recipe-detail': return selectedRecipe ? <RecipeDetailScreen recipe={selectedRecipe} onBack={() => setActiveScreen('recipes')} onDeleteRequest={setRecipeToDelete} onUpdateRecipe={updateRecipe} groceryList={sortedGroceryList} onToggleGroceryItem={toggleGroceryItemFromIngredient} onToggleAllGroceryItems={toggleAllGroceryItems} recipes={recipes} /> : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
+            default: return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={sortedGroceryList} />;
         }
     };
 
