@@ -5,6 +5,8 @@ import {
     deleteDoc, 
     onSnapshot, 
     getDoc,
+    getDocs,
+    getDocsFromServer,
     query
 } from "firebase/firestore";
 import { db } from "./firebase";
@@ -51,12 +53,90 @@ export const firestoreSync = {
           id: docSnap.id
         });
       });
-      items.sort((a, b) => (a.position || 0) - (b.position || 0));
+      items.sort((a, b) => {
+        const posA = typeof a.position === 'number' ? a.position : 0;
+        const posB = typeof b.position === 'number' ? b.position : 0;
+        if (posA !== posB) return posA - posB;
+        const da = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const dbTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return dbTime - da;
+      });
       onUpdate(items);
     }, (error) => {
       console.error("Firestore grocery listener error:", error);
       if (onError) onError(error);
     });
+  },
+
+  // Fetch fresh grocery list directly from server (e.g. when app resumes from background or focuses)
+  async fetchGroceryFromServer(): Promise<GroceryListItem[]> {
+    try {
+      const q = query(collection(db, "grocery"));
+      const snapshot = await getDocsFromServer(q);
+      const items: GroceryListItem[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as GroceryListItem;
+        items.push({
+          ...data,
+          id: docSnap.id
+        });
+      });
+      items.sort((a, b) => {
+        const posA = typeof a.position === 'number' ? a.position : 0;
+        const posB = typeof b.position === 'number' ? b.position : 0;
+        if (posA !== posB) return posA - posB;
+        const da = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const dbTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return dbTime - da;
+      });
+      return items;
+    } catch (err) {
+      console.warn("Could not fetch grocery directly from server, using cached:", err);
+      const snapshot = await getDocs(query(collection(db, "grocery")));
+      const items: GroceryListItem[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as GroceryListItem;
+        items.push({
+          ...data,
+          id: docSnap.id
+        });
+      });
+      return items;
+    }
+  },
+
+  // Fetch fresh recipes directly from server
+  async fetchRecipesFromServer(): Promise<Recipe[]> {
+    try {
+      const q = query(collection(db, "recipes"));
+      const snapshot = await getDocsFromServer(q);
+      const recipes: Recipe[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as Recipe;
+        recipes.push({
+          ...data,
+          id: docSnap.id
+        });
+      });
+      recipes.sort((a, b) => {
+        const da = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const dbTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return dbTime - da;
+      });
+      return recipes;
+    } catch (err) {
+      console.warn("Could not fetch recipes directly from server, using cached:", err);
+      const snapshot = await getDocs(query(collection(db, "recipes")));
+      const recipes: Recipe[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as Recipe;
+        recipes.push({
+          ...data,
+          id: docSnap.id
+        });
+      });
+      return recipes;
+    }
   },
 
   // Save or update a recipe
@@ -137,10 +217,14 @@ export const firestoreSync = {
   // Grocery item actions
   async saveGroceryItem(item: GroceryListItem): Promise<void> {
     const docRef = doc(db, "grocery", item.id);
-    await setDoc(docRef, {
-      ...item,
+    const sanitizedItem = {
+      id: item.id,
+      name: item.name || '',
+      completed: Boolean(item.completed),
+      position: typeof item.position === 'number' ? item.position : 0,
       updatedAt: item.updatedAt || new Date().toISOString()
-    }, { merge: true });
+    };
+    await setDoc(docRef, sanitizedItem, { merge: true });
   },
 
   async deleteGroceryItem(id: string): Promise<void> {
