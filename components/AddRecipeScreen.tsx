@@ -19,10 +19,11 @@ const OptionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: ()
 type AddRecipeScreenProps = {
   onAddRecipe: (recipe: Recipe) => void;
   setActiveScreen: (screen: Screen) => void;
+  onBack?: () => void;
   allCategories: string[];
 };
 
-const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiveScreen, allCategories }) => {
+const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiveScreen, onBack, allCategories }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [error, setError] = useState('');
@@ -153,7 +154,7 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
         <div className="p-4 bg-[#F9F9F5] min-h-screen pb-24">
             {!urlInputVisible && (
                 <div className="flex items-center mb-8 relative h-10">
-                    <button onClick={() => setActiveScreen('recipes')} className="p-2 absolute left-0">
+                    <button onClick={onBack || (() => setActiveScreen('recipes'))} className="p-2 absolute left-0">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                     </button>
                     <h1 className="text-2xl font-bold text-gray-800 text-center w-full">Ajouter une recette</h1>
