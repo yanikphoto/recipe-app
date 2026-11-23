@@ -61,6 +61,45 @@ const App: React.FC = () => {
 
     const activeScreen = isSearchOpen ? 'search' : currentScreen;
 
+    const recipesRef = useRef<Recipe[]>(recipes);
+    useEffect(() => {
+        recipesRef.current = recipes;
+    }, [recipes]);
+
+    // Track touch start for in-app swipe right gesture
+    const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+
+    // Browser History & Swipe-to-Back management (fixes closing app on swipe right)
+    useEffect(() => {
+        // Ensure initial root history state
+        const baseState = { screen: 'welcome', isSearchOpen: false };
+        window.history.replaceState(baseState, '');
+
+        const handlePopState = (event: PopStateEvent) => {
+            const state = event.state;
+            if (state) {
+                setIsSearchOpen(Boolean(state.isSearchOpen));
+                if (state.screen) {
+                    setCurrentScreen(state.screen);
+                    if (state.screen === 'recipe-detail' && state.recipeId) {
+                        const target = recipesRef.current.find(r => r.id === state.recipeId);
+                        if (target) setSelectedRecipe(target);
+                    } else if (state.screen !== 'recipe-detail') {
+                        setSelectedRecipe(null);
+                    }
+                }
+            } else {
+                // If popped without state, fallback safely to recipes or welcome home page
+                setIsSearchOpen(false);
+                setCurrentScreen(prev => (prev === 'recipe-detail' ? 'recipes' : 'welcome'));
+                setSelectedRecipe(null);
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
     // Connect to Firestore real-time listeners & handle automatic wake-up / focus re-sync
     useEffect(() => {
         setSyncInProgressUI(true);
@@ -183,14 +222,96 @@ const App: React.FC = () => {
         else { if (timerEndTime) setRemainingOnPause(timerEndTime - Date.now()); setTimerIsPaused(true); }
     };
 
-    const setActiveScreen = (screen: Screen) => { if (screen === 'search') setIsSearchOpen(true); else { setIsSearchOpen(false); setCurrentScreen(screen); } };
-    const viewRecipe = (recipe: Recipe) => { setSelectedRecipe(recipe); setCurrentScreen('recipe-detail'); setIsSearchOpen(false); };
+    const setActiveScreen = (screen: Screen, pushHistory = true) => { 
+        if (screen === 'search') {
+            setIsSearchOpen(true);
+            if (pushHistory) {
+                window.history.pushState({ screen: currentScreen, recipeId: selectedRecipe?.id, isSearchOpen: true }, '');
+            }
+        } else { 
+            setIsSearchOpen(false); 
+            setCurrentScreen(screen); 
+            if (screen !== 'recipe-detail') {
+                setSelectedRecipe(null);
+            }
+            if (pushHistory) {
+                window.history.pushState({ screen, isSearchOpen: false }, '');
+            }
+        } 
+    };
+
+    const viewRecipe = (recipe: Recipe, pushHistory = true) => { 
+        setSelectedRecipe(recipe); 
+        setCurrentScreen('recipe-detail'); 
+        setIsSearchOpen(false); 
+        if (pushHistory) {
+            window.history.pushState({ screen: 'recipe-detail', recipeId: recipe.id, isSearchOpen: false }, '');
+        }
+    };
+
+    const handleBackNavigation = () => {
+        if (isSearchOpen) {
+            if (window.history.state?.isSearchOpen) {
+                window.history.back();
+            } else {
+                setIsSearchOpen(false);
+            }
+            return;
+        }
+
+        if (window.history.state && window.history.state.screen && window.history.state.screen !== 'welcome') {
+            window.history.back();
+        } else {
+            // Fallback if no history entry exists
+            if (currentScreen === 'recipe-detail') {
+                setActiveScreen('recipes', true);
+            } else {
+                setActiveScreen('welcome', true);
+            }
+            setSelectedRecipe(null);
+        }
+    };
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (e.touches.length === 1) {
+            touchStartRef.current = {
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY,
+                time: Date.now()
+            };
+        }
+    };
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (!touchStartRef.current) return;
+        const touch = e.changedTouches[0];
+        const deltaX = touch.clientX - touchStartRef.current.x;
+        const deltaY = touch.clientY - touchStartRef.current.y;
+        const elapsed = Date.now() - touchStartRef.current.time;
+        const startX = touchStartRef.current.x;
+        touchStartRef.current = null;
+
+        // Only trigger when not on root welcome screen or when search is open
+        const canGoBack = isSearchOpen || currentScreen !== 'welcome';
+        if (!canGoBack) return;
+
+        // Swipe right: starts in the left portion (< 35% of screen width or < 140px), moved right > 70px, mostly horizontal
+        const isSwipeRight = 
+            startX < Math.max(140, window.innerWidth * 0.35) &&
+            deltaX > 70 &&
+            deltaX > Math.abs(deltaY) * 1.8 &&
+            elapsed < 500;
+
+        if (isSwipeRight) {
+            handleBackNavigation();
+        }
+    };
     
     const addRecipe = async (recipe: Recipe) => {
         const normalizedRecipe = await normalizeRecipeImage(recipe);
         // Optimistic UI update so the user immediately sees the recipe
         setRecipes(prev => [normalizedRecipe, ...prev.filter(r => r.id !== normalizedRecipe.id)]);
-        setCurrentScreen('recipes');
+        setActiveScreen('recipes');
         try {
             await firestoreSync.saveRecipe(normalizedRecipe);
         } catch (e: any) {
@@ -213,7 +334,7 @@ const App: React.FC = () => {
 
     const deleteRecipe = async (id: string) => {
         const recipe = recipes.find(r => r.id === id);
-        if (selectedRecipe?.id === id) { setCurrentScreen('recipes'); setSelectedRecipe(null); }
+        if (selectedRecipe?.id === id) { handleBackNavigation(); }
         setRecipeToDelete(null);
         // Optimistic UI update so the recipe immediately disappears
         setRecipes(prev => prev.filter(r => r.id !== id));
@@ -393,16 +514,20 @@ const App: React.FC = () => {
         switch (currentScreen) {
             case 'welcome': return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={sortedGroceryList} />;
             case 'recipes': return <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete} />;
-            case 'add': return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} allCategories={allCategories} />;
-            case 'list': return <GroceryListScreen items={sortedGroceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onMoveItem={moveGroceryItem} onBack={() => setActiveScreen('recipes')} />;
-            case 'timer': return <TimerScreen onBack={() => setActiveScreen('recipes')} timeLeft={timeLeft} isPaused={timerIsPaused} isActive={timerEndTime !== null} onStart={startTimer} onPauseResume={pauseResumeTimer} onReset={resetTimer} />;
-            case 'recipe-detail': return selectedRecipe ? <RecipeDetailScreen recipe={selectedRecipe} onBack={() => setActiveScreen('recipes')} onDeleteRequest={setRecipeToDelete} onUpdateRecipe={updateRecipe} groceryList={sortedGroceryList} onToggleGroceryItem={toggleGroceryItemFromIngredient} onToggleAllGroceryItems={toggleAllGroceryItems} recipes={recipes} /> : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
+            case 'add': return <AddRecipeScreen onAddRecipe={addRecipe} setActiveScreen={setActiveScreen} onBack={handleBackNavigation} allCategories={allCategories} />;
+            case 'list': return <GroceryListScreen items={sortedGroceryList} onAddItem={addCustomGroceryItem} onDeleteItem={deleteGroceryItem} onUpdateItem={updateGroceryItem} onToggleItem={toggleGroceryItem} onMoveItem={moveGroceryItem} onBack={handleBackNavigation} />;
+            case 'timer': return <TimerScreen onBack={handleBackNavigation} timeLeft={timeLeft} isPaused={timerIsPaused} isActive={timerEndTime !== null} onStart={startTimer} onPauseResume={pauseResumeTimer} onReset={resetTimer} />;
+            case 'recipe-detail': return selectedRecipe ? <RecipeDetailScreen recipe={selectedRecipe} onBack={handleBackNavigation} onDeleteRequest={setRecipeToDelete} onUpdateRecipe={updateRecipe} groceryList={sortedGroceryList} onToggleGroceryItem={toggleGroceryItemFromIngredient} onToggleAllGroceryItems={toggleAllGroceryItems} recipes={recipes} /> : <RecipeListScreen recipes={sortedRecipes} onSelectRecipe={viewRecipe} onDeleteRequest={setRecipeToDelete}/>;
             default: return <WelcomeScreen setActiveScreen={setActiveScreen} recipes={sortedRecipes} groceryList={sortedGroceryList} />;
         }
     };
 
     return (
-        <div className="max-w-lg mx-auto font-sans bg-[#F9F9F5] min-h-screen">
+        <div 
+            className="max-w-lg mx-auto font-sans bg-[#F9F9F5] min-h-screen"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+        >
             <div className={`fixed z-50 ${currentScreen === 'recipe-detail' ? 'top-5 left-16' : 'top-5 right-5'}`}>
                 {syncInProgressUI ? (
                     <div className="w-6 h-6 flex items-center justify-center bg-white rounded-full shadow-md" title="Synchronisation Firestore...">
@@ -428,7 +553,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
             )}
-            {isSearchOpen && <SearchModal recipes={sortedRecipes} onSelectRecipe={viewRecipe} onClose={() => setIsSearchOpen(false)} />}
+            {isSearchOpen && <SearchModal recipes={sortedRecipes} onSelectRecipe={viewRecipe} onClose={handleBackNavigation} />}
             {recipeToDelete && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-2xl p-6 m-4 max-w-sm w-full text-center shadow-lg">
