@@ -18,29 +18,67 @@ type RecipeDetailScreenProps = {
 };
 
 const getMetricDisplay = (ing: Ingredient): string | null => {
-    // A very simple map for demo purposes.
-    const conversions: { [key: string]: { [unit: string]: number } } = {
-        'farine': { 'tasse': 120, 'tasses': 120 },
-        'sucre': { 'tasse': 200, 'tasses': 200 },
-        'sucre en poudre': { 'tasse': 200, 'tasses': 200 },
-        'cassonade': { 'tasse': 220, 'tasses': 220 },
-        'beurre': { 'tasse': 227, 'tasses': 227, 'c.à.s': 14.2 },
-        'lait': { 'tasse': 240, 'tasses': 240 },
-        'eau': { 'tasse': 236, 'tasses': 236 },
-        'huile': { 'tasse': 218, 'tasses': 218, 'c.à.s': 13.6 },
-    };
+    if (!ing.unit || !ing.quantity) return null;
+
+    const rawUnit = ing.unit.toLowerCase().trim();
+    const cleanUnit = rawUnit.replace(/[\.\s_-]/g, '');
+
+    let normalizedUnit: 'tasse' | 'cas' | 'cat' | null = null;
+    if (/^(tasse|tasses|cup|cups|t)$/.test(cleanUnit)) {
+        normalizedUnit = 'tasse';
+    } else if (/^(cas|cs|càs|casoupe|cuillereasoupe|cuillèresasoupe|cuillèreasoupe|tbsp)$/.test(cleanUnit)) {
+        normalizedUnit = 'cas';
+    } else if (/^(cat|ct|càt|cathe|cuillereathe|cuillèresathé|cuillèreathé|tsp)$/.test(cleanUnit)) {
+        normalizedUnit = 'cat';
+    }
+
+    if (!normalizedUnit) return null;
+
+    const conversions: { key: string; grams: { tasse?: number; cas?: number; cat?: number } }[] = [
+        { key: 'sucre à glacer', grams: { tasse: 120, cas: 8 } },
+        { key: 'sucre en poudre', grams: { tasse: 120, cas: 8 } },
+        { key: 'sucre glace', grams: { tasse: 120, cas: 8 } },
+        { key: 'cassonade', grams: { tasse: 220, cas: 14 } },
+        { key: 'sucre brun', grams: { tasse: 220, cas: 14 } },
+        { key: 'sucre', grams: { tasse: 200, cas: 12.5 } },
+        { key: 'farine', grams: { tasse: 120, cas: 8 } },
+        { key: 'pépites de chocolat', grams: { tasse: 175, cas: 11 } },
+        { key: 'chocolat', grams: { tasse: 175, cas: 11 } },
+        { key: 'cacao', grams: { tasse: 100, cas: 6 } },
+        { key: 'avoine', grams: { tasse: 90, cas: 6 } },
+        { key: 'fécule', grams: { tasse: 120, cas: 8 } },
+        { key: 'beurre', grams: { tasse: 227, cas: 14.2 } },
+        { key: 'margarine', grams: { tasse: 227, cas: 14.2 } },
+        { key: 'miel', grams: { tasse: 340, cas: 21 } },
+        { key: 'sirop d\'érable', grams: { tasse: 315, cas: 20 } },
+        { key: 'mélasse', grams: { tasse: 330, cas: 20 } },
+        { key: 'lait', grams: { tasse: 240, cas: 15 } },
+        { key: 'babeurre', grams: { tasse: 240, cas: 15 } },
+        { key: 'crème sure', grams: { tasse: 240, cas: 15 } },
+        { key: 'yogourt', grams: { tasse: 240, cas: 15 } },
+        { key: 'yaourt', grams: { tasse: 240, cas: 15 } },
+        { key: 'crème', grams: { tasse: 240, cas: 15 } },
+        { key: 'eau', grams: { tasse: 236, cas: 15 } },
+        { key: 'huile', grams: { tasse: 218, cas: 13.6 } },
+        { key: 'chapelure', grams: { tasse: 110, cas: 7 } },
+        { key: 'amande', grams: { tasse: 125, cas: 8 } },
+        { key: 'noix', grams: { tasse: 120, cas: 8 } },
+        { key: 'riz', grams: { tasse: 190, cas: 12 } },
+    ];
+
     const ingredientName = ing.name.toLowerCase();
-    const unit = ing.unit?.toLowerCase();
-    if (unit && ing.quantity) {
-        for (const key in conversions) {
-            if (ingredientName.includes(key) && conversions[key][unit]) {
-                const grams = conversions[key][unit] * ing.quantity;
-                return `(${Math.round(grams)}g)`;
+    for (const item of conversions) {
+        if (ingredientName.includes(item.key)) {
+            const gramsPerUnit = item.grams[normalizedUnit];
+            if (gramsPerUnit) {
+                const totalGrams = gramsPerUnit * ing.quantity;
+                return `(${Math.round(totalGrams)}g)`;
             }
         }
     }
+
     return null;
-}
+};
 
 const RecipeDetailScreen: React.FC<RecipeDetailScreenProps> = ({ recipe, onBack, onDeleteRequest, onUpdateRecipe, groceryList, onToggleGroceryItem, onToggleAllGroceryItems, recipes }) => {
     const [isEditing, setIsEditing] = useState(false);

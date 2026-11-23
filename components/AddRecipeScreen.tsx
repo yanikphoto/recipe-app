@@ -68,13 +68,24 @@ const AddRecipeScreen: React.FC<AddRecipeScreenProps> = ({ onAddRecipe, setActiv
             categories: parsedData.categories || [],
             servings: typeof parsedData.servings === 'number' ? parsedData.servings : 0,
             servingsUnit: parsedData.servingsUnit || '',
-            ingredients: (parsedData.ingredients || []).map(ing => ({
-                id: generateId(),
-                name: ing.name || '',
-                quantity: typeof ing.quantity === 'number' ? ing.quantity : (ing.quantity ? Number(ing.quantity) || 0 : 0),
-                unit: ing.unit || '',
-                isSectionHeader: Boolean(ing.isSectionHeader),
-            })),
+            ingredients: (parsedData.ingredients || []).map(ing => {
+                let qty: number | undefined = undefined;
+                if (typeof ing.quantity === 'number' && !isNaN(ing.quantity) && ing.quantity > 0) {
+                    qty = ing.quantity;
+                } else if (typeof ing.quantity === 'string' && (ing.quantity as string).trim() !== '') {
+                    const parsedNum = Number(ing.quantity);
+                    if (!isNaN(parsedNum) && parsedNum > 0) {
+                        qty = parsedNum;
+                    }
+                }
+                return {
+                    id: generateId(),
+                    name: ing.name || '',
+                    quantity: qty,
+                    unit: ing.unit || '',
+                    isSectionHeader: Boolean(ing.isSectionHeader),
+                };
+            }),
             instructions: parsedData.instructions || [],
             updatedAt: new Date().toISOString(),
         };
