@@ -102,6 +102,7 @@ Règles pour les ingrédients :
 - Pour les unités d'ingrédients, utilise les abréviations françaises courantes : 'tasse' ou 'tasses', 'c. à s.' pour cuillère à soupe, 'c. à t.' pour cuillère à thé, 'g', 'ml', 'lb', 'oz'.
 - Si aucune unité de mesure spécifique (comme g, tasse, c. à s.) n'est applicable (par exemple pour '1 banane' ou '2 œufs'), le champ 'unit' doit être une chaîne vide "". N'utilise pas de termes génériques comme 'unité'.
 - Pour les ingrédients sans quantité chiffrée précise (par exemple 'sel et poivre au goût', 'huile pour la cuisson', 'une pincée de cannelle'), ne mets pas 0 : omets simplement le champ 'quantity' (laisse-le vide) et intègre la précision dans le nom si nécessaire.
+- Pour les quantités exprimées en fractions dans la source (ex: 1/3, 2/3, 1/4, 1/2, 3/4, 1/8, 1 1/3), convertis-les en valeur décimale équivalente précise (par exemple 1/3 -> 0.333, 2/3 -> 0.667, 1/4 -> 0.25, 1/2 -> 0.5, 3/4 -> 0.75, 1 1/3 -> 1.333).
 - Conserve les abréviations françaises telles quelles et ne les traduis pas en anglais (par exemple, ne change pas 'c. à s.' en 'tbsp').
 - Ne convertis pas les températures (ex: °F) présentes dans la source ; conserve l'unité de température originale sans modification.
 - Si les ingrédients sont groupés en sections (par ex. 'Marinade', 'Sauce'), représente ces sections comme des éléments dans la liste d'ingrédients avec 'isSectionHeader' à true et le titre de la section dans le champ 'name'. Les ingrédients qui suivent un tel en-tête appartiennent à cette section.
@@ -127,6 +128,7 @@ Règles pour les ingrédients :
 - Pour les unités d'ingrédients, utilise les abréviations françaises courantes : 'tasse' ou 'tasses', 'c. à s.' pour cuillère à soupe, 'c. à t.' pour cuillère à thé, 'g', 'ml', 'lb', 'oz'.
 - Si aucune unité de mesure spécifique (comme g, tasse, c. à s.) n'est applicable (par exemple pour '1 banane' ou '2 œufs'), le champ 'unit' doit être une chaîne vide "". N'utilise pas de termes génériques comme 'unité'.
 - Pour les ingrédients sans quantité chiffrée précise (par exemple 'sel et poivre au goût', 'huile pour la cuisson', 'une pincée de cannelle'), ne mets pas 0 : omets simplement le champ 'quantity' (laisse-le vide) et intègre la précision dans le nom si nécessaire.
+- Pour les quantités exprimées en fractions dans la source (ex: 1/3, 2/3, 1/4, 1/2, 3/4, 1/8, 1 1/3), convertis-les en valeur décimale équivalente précise (par exemple 1/3 -> 0.333, 2/3 -> 0.667, 1/4 -> 0.25, 1/2 -> 0.5, 3/4 -> 0.75, 1 1/3 -> 1.333).
 - Conserve les abréviations françaises telles quelles et ne les traduis pas en anglais (par exemple, ne change pas 'c. à s.' en 'tbsp').
 - Ne convertis pas les températures (ex: °F) présentes dans la source ; conserve l'unité de température originale sans modification.
 - Si les ingrédients sont groupés en sections (par ex. 'Marinade', 'Sauce'), représente ces sections comme des éléments dans la liste d'ingrédients avec 'isSectionHeader' à true et le titre de la section dans le champ 'name'. Les ingrédients qui suivent un tel en-tête appartiennent à cette section.
